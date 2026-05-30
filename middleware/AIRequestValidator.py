@@ -81,8 +81,7 @@ Reply with ONLY a number 0-100.
 """
 
 def ask_ai(body: str,config: dict) -> int:
-    backend = 'groq'        # default to groq and can be chnaged later
-    
+    backend = config.get('BACKEND', 'groq')    
     prompt = VALIDATION_PROMPT.format(body=body[:500])
     
     if backend == 'groq':
@@ -116,16 +115,17 @@ class AIRequestValidator:
         body = request.body.decode('utf-8')
         score = suspicion_score(body)
 
-        if score == 0:      # clearly safe → no AI call
+        if score == 0:      # clearly safe-- no AI call
             pass
 
-        elif score >= 3:        # multiple patterns matched → obviously malicious → block immediately, no AI needed!
+        elif score >= 3:        # multiple patterns matched -- obviously malicious -- block immediately, no AI needed!
             return JsonResponse({"error": "blocked"}, status=403)
 
         elif score in (1, 2):           # borderline -- ONLY these go to AI
             try:
-                confidence = ask_ai(body)
-                if confidence > 90:
+                config = getattr(settings, 'SMART_MIDDLEWARE', {}) 
+                confidence = ask_ai(body, config) 
+                if confidence > 85:
                     return JsonResponse({"error": "blocked"}, status=403)
             except Exception:
                 pass  # if AI fails, let request through (don't break the app)
