@@ -4,6 +4,10 @@ from django.core.cache import cache
 from django.http import JsonResponse
 from .models import UserRequestCount
 
+key = f"rl:min:{request.user.id}:{user_plan}:{request.path}"
+key = f"rl:hour:
+key = f"rl:day:
+
 config = settings.SMART_MIDDLEWARE
 
 class RateLimiter:
@@ -21,7 +25,7 @@ class RateLimiter:
             response = self.get_response(request)
             return response
         
-        path_limits = limits.get(request.path)   #limit for incoming path 
+        path_limits = limits.get(request.path)   #limit for incoming path
 
         if path_limits is None:
             # path not rate limited - let through
@@ -38,28 +42,29 @@ class RateLimiter:
             count = record.lifetime_count
             if count >= lifetime:
                 return JsonResponse({"error": "rate limit exceeded"}, status=429)
-            record.lifetime_count+= 1
+            record.lifetime_count+=1
             record.save()
-            
-
-
-
-
-        if per_minute:
-            key = f"rl:min:{request.user.id}:{request.path}"
-            count = cache.get(key, 0)
-            if count >= per_minute:
-                return JsonResponse({"error": "rate limit exceeded"}, status=429)
-            cache.set(key, count + 1, 60)
-
-        if per_hour:
-        # same thing, different key and expiry
 
         if per_day:
-        # same thing, different key and expiry
+            key = f"rl:day:{request.user.id}:{user_plan}:{request.path}"
+            count = cache.get(key, 0)
+            if count >= per_day:
+                return JsonResponse({"error": "rate limit exceeded for today"}, status=429)
+            cache.set(key, count + 1, 3600*24)  
 
-        if lifetime:
-            # same thing, different key and expiry
+        if per_hour:
+            key = f"rl:hour:{request.user.id}:{user_plan}:{request.path}""
+            count = cache.get(key, 0)
+            if count >= per_hour:
+                return JsonResponse({"error": "rate limit exceeded for today"}, status=429)
+            cache.set(key, count + 1, 3600)
+
+        if per_minute:
+            key = f"rl:min:{request.user.id}:{user_plan}:{request.path}"
+            count = cache.get(key, 0)
+            if count >= per_minute:
+                return JsonResponse({"error": "too many reuqest per minute"}, status=429)
+            cache.set(key, count + 1, 60)
             
         response=self.get_response(request)
         return response
