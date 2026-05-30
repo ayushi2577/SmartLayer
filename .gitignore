@@ -1,0 +1,46 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Django stuff
+*.log
+db.sqlite3
+media/
+
+# Environment variables
+.env
+
+# VS Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# Static files collected by Django
+staticfiles/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Migration cache
+*.sqlite3
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Package files
+*.egg-info/
+dist/
+build/
+
+# Node modules (if using React/frontend)
+node_modules/
