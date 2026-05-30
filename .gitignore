@@ -44,3 +44,5 @@ build/
 
 # Node modules (if using React/frontend)
 node_modules/
+
+desktop.ini
