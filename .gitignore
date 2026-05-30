@@ -45,4 +45,4 @@ build/
 # Node modules (if using React/frontend)
 node_modules/
 
-.ini
+desktop.ini

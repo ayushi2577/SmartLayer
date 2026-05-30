@@ -1,5 +1,8 @@
 
 from django.db import models
+from django.contrib.auth import get_user_model
+
+User=get_user_model()
 
 class RequestLog(models.Model):
     method = models.CharField(max_length=10)
@@ -10,4 +13,11 @@ class RequestLog(models.Model):
     
     def __str__(self):
         return self.method + " " + self.path
+    
+class UserRequestCount(models.Model):
+    user = models.ForeignKey('auth.User', on_delete=models.CASCADE)
+    path = models.CharField(max_length=200)
+    lifetime_count = models.IntegerField(default=0)
 
+    class Meta:
+        unique_together = ['user', 'path']  # one row per user per path

@@ -1,0 +1,65 @@
+
+from django.conf import settings
+from django.core.cache import cache
+from django.http import JsonResponse
+from .models import UserRequestCount
+
+config = settings.SMART_MIDDLEWARE
+
+class RateLimiter:
+    def __init__(self, get_response):
+        self.get_response = get_response
+        
+    def __call__(self, request):
+        plan_field = config.get('PLAN_FIELD', 'plan')  # default to 'plan'
+        user_plan = getattr(request.user, plan_field)  # # request.user.plan_filed like user.plan or user.subscription
+
+        limits = config['RATE_LIMIT_PLANS'].get(user_plan)  #get all path limits
+
+        if limits is None:
+            # plan not found in config - just let through
+            response = self.get_response(request)
+            return response
+        
+        path_limits = limits.get(request.path)   #limit for incoming path 
+
+        if path_limits is None:
+            # path not rate limited - let through
+            response = self.get_response(request)
+            return response
+
+        per_minute =  path_limits.get('per_minute')  # per minute limit
+        per_hour = path_limits.get('per_hour')  # per hour limit
+        per_day = path_limits.get('per_day')  # per day limit
+        lifetime = path_limits.get('lifetime')  # lifetime of limit
+
+        if lifetime:
+            record, created = UserRequestCount.objects.get_or_create(user=request.user, path=request.path)
+            count = record.lifetime_count
+            if count >= lifetime:
+                return JsonResponse({"error": "rate limit exceeded"}, status=429)
+            record.lifetime_count+= 1
+            record.save()
+            
+
+
+
+
+        if per_minute:
+            key = f"rl:min:{request.user.id}:{request.path}"
+            count = cache.get(key, 0)
+            if count >= per_minute:
+                return JsonResponse({"error": "rate limit exceeded"}, status=429)
+            cache.set(key, count + 1, 60)
+
+        if per_hour:
+        # same thing, different key and expiry
+
+        if per_day:
+        # same thing, different key and expiry
+
+        if lifetime:
+            # same thing, different key and expiry
+            
+        response=self.get_response(request)
+        return response
