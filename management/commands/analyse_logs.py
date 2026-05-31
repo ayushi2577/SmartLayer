@@ -2,7 +2,7 @@
 from django.core.management.base import BaseCommand
 from datetime import date,timedelta
 from django.db.models import Avg,Count
-from middleware.utils import ask_ai_text
+from ..utils import ask_ai_text
 from django.conf import settings
 
 

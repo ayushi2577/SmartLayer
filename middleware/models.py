@@ -5,6 +5,8 @@ from django.contrib.auth import get_user_model
 User=get_user_model()
 
 class RequestLog(models.Model):
+    user_id = models.IntegerField(null=True, blank=True)
+    ip_address=models.GenericIPAddressField(null=True, blank=True)
     method = models.CharField(max_length=10)            #GET/POST/PUT/DELETE
     path = models.CharField(max_length=100)             #/api/v1/users/1
     status_code = models.IntegerField()                 #200/400/500

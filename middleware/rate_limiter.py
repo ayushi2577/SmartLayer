@@ -51,7 +51,7 @@ class RateLimiter:
             cache.set(key, count + 1, 3600*24)  
 
         if per_hour:
-            key = f"rl:hour:{request.user.id}:{user_plan}:{request.path}
+            key = f"rl:hour:{request.user.id}:{user_plan}:{request.path}"
             count = cache.get(key, 0)
             if count >= per_hour:
                 request._was_blocked = True
