@@ -3,6 +3,7 @@ import re
 from django.http import JsonResponse
 from urllib.parse import unquote
 import httpx
+from .utils import ask_ai
 from django.conf import settings
 
 SUSPICIOUS_PATTERNS = [
@@ -80,30 +81,6 @@ Reply with ONLY a number 0-100.
 100 = definitely malicious
 """
 
-def ask_ai(body: str,config: dict) -> int:
-    backend = config.get('BACKEND', 'groq')    
-    prompt = VALIDATION_PROMPT.format(body=body[:500])
-    
-    if backend == 'groq':
-        return _ask_groq(prompt, config)
-    return 0  # if no backend configured, treat as safe
-
-def _ask_groq(prompt: str, config: dict) -> int:
-    response = httpx.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={"Authorization": f"Bearer {config.get('GROQ_API_KEY')}"},
-        json={
-            "model": "llama3-8b-8192",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 5,
-            "temperature": 0.0,
-        },
-        timeout=5.0
-    )
-    result = response.json()["choices"][0]["message"]["content"].strip()
-    return int(result)
-
-
 
 class AIRequestValidator:
 
@@ -124,7 +101,7 @@ class AIRequestValidator:
         elif score in (1, 2):           # borderline -- ONLY these go to AI
             try:
                 config = getattr(settings, 'SMART_MIDDLEWARE', {}) 
-                confidence = ask_ai(body, config) 
+                confidence = ask_ai(body, config,VALIDATION_PROMPT)
                 if confidence > 85:
                     return JsonResponse({"error": "blocked"}, status=403)
             except Exception:

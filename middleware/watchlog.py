@@ -15,7 +15,11 @@ class WatchLog:
         
         response_time_ms=(end-start)*1000                                                   #in milliseconds
 
-        RequestLog.objects.create(method=request.method, path=request.path, status_code=response.status_code, response_time_ms=response_time_ms)
+        RequestLog.objects.create(method=request.method, 
+                                  path=request.path, 
+                                  status_code=response.status_code, 
+                                  response_time_ms=response_time_ms,
+                                  was_blocked=getattr(request, '_was_blocked', False))
 
 
         return response

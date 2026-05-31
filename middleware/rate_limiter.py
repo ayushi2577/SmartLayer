@@ -4,10 +4,6 @@ from django.core.cache import cache
 from django.http import JsonResponse
 from .models import UserRequestCount
 
-key = f"rl:min:{request.user.id}:{user_plan}:{request.path}"
-key = f"rl:hour:
-key = f"rl:day:
-
 config = settings.SMART_MIDDLEWARE
 
 class RateLimiter:
