@@ -37,6 +37,7 @@ class RateLimiter:
             record, created = UserRequestCount.objects.get_or_create(user=request.user, path=request.path)
             count = record.lifetime_count
             if count >= lifetime:
+                request._was_blocked = True
                 return JsonResponse({"error": "rate limit exceeded"}, status=429)
             record.lifetime_count+=1
             record.save()
@@ -45,13 +46,15 @@ class RateLimiter:
             key = f"rl:day:{request.user.id}:{user_plan}:{request.path}"
             count = cache.get(key, 0)
             if count >= per_day:
+                request._was_blocked = True
                 return JsonResponse({"error": "rate limit exceeded for today"}, status=429)
             cache.set(key, count + 1, 3600*24)  
 
         if per_hour:
-            key = f"rl:hour:{request.user.id}:{user_plan}:{request.path}""
+            key = f"rl:hour:{request.user.id}:{user_plan}:{request.path}
             count = cache.get(key, 0)
             if count >= per_hour:
+                request._was_blocked = True
                 return JsonResponse({"error": "rate limit exceeded for today"}, status=429)
             cache.set(key, count + 1, 3600)
 
@@ -59,6 +62,7 @@ class RateLimiter:
             key = f"rl:min:{request.user.id}:{user_plan}:{request.path}"
             count = cache.get(key, 0)
             if count >= per_minute:
+                request._was_blocked = True
                 return JsonResponse({"error": "too many reuqest per minute"}, status=429)
             cache.set(key, count + 1, 60)
             

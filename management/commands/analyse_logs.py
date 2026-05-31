@@ -33,6 +33,9 @@ class Command(BaseCommand):
         #blocked — requests blocked by our middleware
         blocked=logs.filter(was_blocked=True).count()
 
+        slowest_text = "\n".join([f"{r['path']}: {r['avg_time']:.1f}ms" for r in slowest])
+        top_paths_text = "\n".join([f"{r['path']}: {r['count']} hits" for r in top_paths])
+
         summary = f"""
             Date: {yesterday}
             Total requests: {total}
@@ -41,10 +44,10 @@ class Command(BaseCommand):
             Blocked: {blocked}
 
             Top 5 slowest:
-            {slowest}
+            {slowest_text}
 
             Top 5 most hit:
-            {top_paths}
+            {top_paths_text}
             """
         
         prompt = f"""
@@ -60,8 +63,7 @@ class Command(BaseCommand):
         if not config:
             return summary+"\n\nAI reviews not avalilable as no API key is set."
         result= ask_ai_text(prompt, config)
-        return result
-
+        self.stdout.write(result)  # not return result as here we are giving him in the terminal
 
         
 

@@ -5,12 +5,12 @@ from django.contrib.auth import get_user_model
 User=get_user_model()
 
 class RequestLog(models.Model):
-    method = models.CharField(max_length=10)
-    path = models.CharField(max_length=100)
-    status_code = models.IntegerField()
-    response_time_ms = models.FloatField()
-    timestamp = models.DateTimeField(auto_now_add=True)
-    was_blocked = models.BooleanField(default=False)
+    method = models.CharField(max_length=10)            #GET/POST/PUT/DELETE
+    path = models.CharField(max_length=100)             #/api/v1/users/1
+    status_code = models.IntegerField()                 #200/400/500
+    response_time_ms = models.FloatField()              #time in ms
+    timestamp = models.DateTimeField(auto_now_add=True) #when request was made
+    was_blocked = models.BooleanField(default=False)    #was blocked by middleware
     
     def __str__(self):
         return self.method + " " + self.path
