@@ -1,4 +1,17 @@
-
+"""
+It is a middleware that validates the request body.
+Prevents SQL injection, XSS, Path Traversal, Shell Injection, Prompt Injection and other common attacks by looking for suspicious patterns in the request body.
+It checks for suspicious patterns and if found 3 or more in the request then it blocks the request immediately without calling AI.
+If it finds 1 or 2 suspicious patterns then it calls the AI to get a confidence score of how likely the request is malicious.
+If the confidence score is above 85 then it blocks the request.
+configuration needed in settings.py
+SMART_MIDDLEWARE = {
+    'api_key': 'your_api_key',
+    }
+#currently only supports GROQ but can be extended to support other AI providers in future
+if no api key is provided or if AI call fails for any reason, the middleware will fail open and allow the request to go through (to avoid breaking the app).
+but will still block requests with 3 or more suspicious patterns without calling AI, to catch obvious attacks even if AI is not working.
+"""
 import re
 from django.http import JsonResponse
 from urllib.parse import unquote

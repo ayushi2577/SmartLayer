@@ -1,8 +1,21 @@
+"""
+Analyse API logs and generate a plain English summary.
+Making it easy for developers to understand the overall health of their API, 
+identify slow endpoints, spot error patterns, and get actionable recommendations without digging through raw log data.
 
+Minimal configuration needed in settings.py
+SMART_MIDDLEWARE = {
+    'api_key': 'your_api_key',
+    }
+
+Currently only supports GROQ but can be extended to support other AI providers in future
+If no API key is provided or if AI call fails for any reason, the command will still run and 
+provide the summary without AI insights, to avoid breaking the app.
+"""
 from django.core.management.base import BaseCommand
 from datetime import date,timedelta
 from django.db.models import Avg,Count
-from ..utils import ask_ai_text
+from middleware.utils import ask_ai_text
 from django.conf import settings
 
 
@@ -65,6 +78,9 @@ class Command(BaseCommand):
         result= ask_ai_text(prompt, config)
         self.stdout.write(result)  # not return result as here we are giving him in the terminal
 
-        
-
+#======================================================= Q&A  ===========================================       
+"""
+How will it know when to run beacuse along iwth collecting log will it run and the how is 
+it a midlle ware what will be its actuall lifecycle look like?
+"""
 
