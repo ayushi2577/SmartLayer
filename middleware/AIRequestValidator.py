@@ -16,7 +16,7 @@ import re
 from django.http import JsonResponse
 from urllib.parse import unquote
 import httpx
-from .utils import ask_ai
+from .utils import ask_ai_score
 from django.conf import settings
 
 SUSPICIOUS_PATTERNS = [
@@ -120,7 +120,7 @@ class AIRequestValidator:
         elif score in (1, 2):           # borderline -- ONLY these go to AI
             try:
                 config = getattr(settings, 'SMART_MIDDLEWARE', {}) 
-                confidence = ask_ai(body, config,VALIDATION_PROMPT)
+                confidence = ask_ai_score(body, config,VALIDATION_PROMPT)
                 if confidence > 85:
                     return JsonResponse({"error": "blocked"}, status=403)
             except Exception:

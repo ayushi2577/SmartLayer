@@ -42,7 +42,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 
 from .models import RequestLog
-from .utils import ask_ai  # your existing function
+from .utils import ask_ai_verdict
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -304,13 +304,14 @@ class AIAnomalyDetector:
         If AI says BLOCK, flag user in DB for next request.
         """
         try:
-            verdict = ask_ai(payload)   # utils function
+            cfg = getattr(settings, 'SMART_MIDDLEWARE', {})
+            verdict = ask_ai_verdict(payload, cfg)                     # utils function
             if verdict == "BLOCK":
                 RequestLog.objects.filter(user_id=user_id).update(
-                    ai_flagged=True     # add this field to your model
+                    ai_flagged=True                                     # add this field to your model
                 )
         except Exception:
-            pass    # AI failure never blocks the request
+            pass                                                        # AI failure never blocks the request
 
 
     @staticmethod

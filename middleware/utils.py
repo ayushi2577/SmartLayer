@@ -14,7 +14,7 @@ def call_groq(prompt: str, config: dict, max_tokens: int = 5, temperature: float
     )
     return response.json()["choices"][0]["message"]["content"].strip()
 
-def ask_ai(body: str, config: dict,VALIDATION_PROMPT) -> int:
+def ask_ai_score(body: str, config: dict,VALIDATION_PROMPT: str) -> int:
     """For AIRequestValidator — returns confidence score 0-100"""
     prompt = VALIDATION_PROMPT.format(body=body[:500])
     result = call_groq(prompt, config, max_tokens=5, temperature=0.0)
@@ -24,3 +24,16 @@ def ask_ai_text(prompt: str, config: dict) -> str:
     """For AILogAnalyser — returns plain English text"""
     result = call_groq(prompt, config, max_tokens=500, temperature=0.7)
     return result
+
+#======================================================     FOR ANAMOLY DETECTOR     ==========================================================================
+
+def ask_ai_verdict(payload: dict, config: dict) -> str:
+    """For AIAnomalyDetector — returns 'BLOCK' or 'ALLOW'"""
+    import json
+    prompt = """
+    You are a security expert. Based on this raw API behaviour data, is this user a bot?
+    Data: {payload}
+    Reply with ONLY one word: BLOCK or ALLOW.
+    """.format(payload=json.dumps(payload, indent=2))
+    result = call_groq(prompt, config, max_tokens=5, temperature=0.0)
+    return "BLOCK" if "BLOCK" in result.upper() else "ALLOW"
