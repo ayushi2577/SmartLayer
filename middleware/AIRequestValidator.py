@@ -93,8 +93,6 @@ Reply with ONLY a number 0-100.
 0 = definitely safe
 100 = definitely malicious
 """
-
-
 class AIRequestValidator:
 
     def __init__(self, get_response):
@@ -102,7 +100,15 @@ class AIRequestValidator:
         
     def __call__(self, request):
         
-        body = request.body.decode('utf-8')
+        content_type = request.META.get('CONTENT_TYPE', '')
+        if 'multipart' in content_type:
+            return self.get_response(request)  # skip binary file uploads
+
+        try:
+            body = request.body.decode('utf-8')
+        except (UnicodeDecodeError, Exception):
+            return self.get_response(request)  # can't decode - not a text attack
+        
         score = suspicion_score(body)
 
         if score == 0:      # clearly safe-- no AI call
