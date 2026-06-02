@@ -9,7 +9,7 @@ class RequestLog(models.Model):
     ai_flagged = models.BooleanField(default=False)  # was flagged as suspicious by AI
     ip_address=models.GenericIPAddressField(null=True, blank=True)
     method = models.CharField(max_length=10)            #GET/POST/PUT/DELETE
-    path = models.CharField(max_length=100)             #/api/v1/users/1
+    path = models.CharField(max_length=500)             #/api/v1/users/1
     status_code = models.IntegerField()                 #200/400/500
     response_time_ms = models.FloatField()              #time in ms
     timestamp = models.DateTimeField(auto_now_add=True) #when request was made
