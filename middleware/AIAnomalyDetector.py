@@ -90,6 +90,10 @@ class AIAnomalyDetector:
 
 
     def __call__(self, request):
+
+        if getattr(request, 'ai_flagged', False):
+            return JsonResponse({"error": "blocked"}, status=403)
+        
         now = timezone.now()
 
         # ── BLACK ────────────────────────────────────────────────────────────

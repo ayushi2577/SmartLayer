@@ -37,13 +37,19 @@ from django.http import JsonResponse
 from .models import UserRequestCount
 from django.db.models import F
 
-config = settings.SMART_MIDDLEWARE
+
 
 class RateLimiter:
     def __init__(self, get_response):
         self.get_response = get_response
         
     def __call__(self, request):
+        
+        try:
+            config = settings.SMART_MIDDLEWARE
+        except AttributeError:
+            return self.get_response(request)                   # no config - just let through      
+
         if not request.user.is_authenticated:
             response = self.get_response(request)
             return response
@@ -75,7 +81,6 @@ class RateLimiter:
                 request._was_blocked = True
                 return JsonResponse({"error": "Lifetime rate limit exceeded"}, status=429)
             UserRequestCount.objects.filter(pk=record.pk).update(lifetime_count=F('lifetime_count') + 1)        #to prevent race conditions -- concurrent requests causing multiple increments -- we do it in single query with F expression instead of fetching, incrementing and saving
-            record.save()
 
         if per_day:
             key = f"rl:day:{request.user.id}:{user_plan}:{request.path}"

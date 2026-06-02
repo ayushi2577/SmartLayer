@@ -72,7 +72,7 @@ Add `SMART_MIDDLEWARE` to your `settings.py`:
 SMART_MIDDLEWARE = {
 
     # --- AI Backend ---
-    'AI_BACKEND': 'groq',           # 'groq' (cloud) or 'ollama' (local, free)
+    'AI_BACKEND': 'groq',           # 'groq' (cloud)
     'GROQ_API_KEY': env('GROQ_API_KEY'),   # only needed for groq
 
     # --- Rate Limiter ---
@@ -198,11 +198,6 @@ Reads yesterday's `RequestLog` entries, builds a traffic summary, and asks AI to
 1. Get a free API key at [console.groq.com](https://console.groq.com)
 2. Add to `.env`: `GROQ_API_KEY=gsk_...`
 3. Set `'AI_BACKEND': 'groq'` in `SMART_MIDDLEWARE`
-
-### Ollama (recommended for development — 100% free, local)
-1. Download from [ollama.com/download](https://ollama.com/download)
-2. Run: `ollama pull llama3 && ollama serve`
-3. Set `'AI_BACKEND': 'ollama'` in `SMART_MIDDLEWARE`
 
 ---
 
