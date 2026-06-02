@@ -35,6 +35,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
 from .models import UserRequestCount
+from django.db.models import F
 
 config = settings.SMART_MIDDLEWARE
 
@@ -43,6 +44,10 @@ class RateLimiter:
         self.get_response = get_response
         
     def __call__(self, request):
+        if not request.user.is_authenticated:
+            response = self.get_response(request)
+            return response
+        
         plan_field = config.get('PLAN_FIELD', 'plan')       # default to 'plan'
         user_plan = getattr(request.user, plan_field)       # request.user.plan_filed like user.plan or user.subscription
 
@@ -69,7 +74,7 @@ class RateLimiter:
             if count >= lifetime:
                 request._was_blocked = True
                 return JsonResponse({"error": "Lifetime rate limit exceeded"}, status=429)
-            record.lifetime_count+=1
+            UserRequestCount.objects.filter(pk=record.pk).update(lifetime_count=F('lifetime_count') + 1)        #to prevent race conditions -- concurrent requests causing multiple increments -- we do it in single query with F expression instead of fetching, incrementing and saving
             record.save()
 
         if per_day:
@@ -85,7 +90,7 @@ class RateLimiter:
             count = cache.get(key, 0)
             if count >= per_hour:
                 request._was_blocked = True
-                return JsonResponse({"error": "rate limit exceeded for today"}, status=429)
+                return JsonResponse({"error": "rate limit exceeded for this hour"}, status=429)
             cache.set(key, count + 1, 3600)
 
         if per_minute:
@@ -93,7 +98,7 @@ class RateLimiter:
             count = cache.get(key, 0)
             if count >= per_minute:
                 request._was_blocked = True
-                return JsonResponse({"error": "too many reuqest per minute"}, status=429)
+                return JsonResponse({"error": "too many requests per minute"}, status=429)
             cache.set(key, count + 1, 60)
             
         response=self.get_response(request)
