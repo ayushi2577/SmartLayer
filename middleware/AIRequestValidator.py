@@ -66,7 +66,7 @@ def suspicion_score(body: str) -> int:
     normalized = normalize(body)   # normalize first
     score = 0
     for pattern in SUSPICIOUS_PATTERNS:
-        if re.search(pattern, normalized):
+        if re.search(pattern, normalized):        #re.search(pattern, string) looks for the pattern anywhere in the string
             score += 1
     return score
 

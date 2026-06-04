@@ -41,7 +41,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 
-from .models import RequestLog
+from .models import RequestLog, BannedUser
 from .utils import ask_ai_verdict
 
 
@@ -91,18 +91,25 @@ class AIAnomalyDetector:
 
     def __call__(self, request):
 
-        if getattr(request, 'ai_flagged', False):
+        # ── BAN CHECK ────────────────────────────────────────────────────────
+        # For authenticated users, check by user_id.
+        # For anonymous users, check by IP (unauthenticated = no user_id to track).
+        ip = request.META.get('REMOTE_ADDR')
+        user_id = request.user.id if request.user.is_authenticated else None
+
+        if BannedUser.is_banned(user_id=user_id, ip_address=ip if not user_id else None):
+            request._was_blocked = True
             return JsonResponse({"error": "blocked"}, status=403)
-        
+
         now = timezone.now()
 
         # ── BLACK ────────────────────────────────────────────────────────────
-        block_response = self._black_check(request, now)
+        block_response = self._black_check(request, now, user_id=user_id, ip=ip)
         if block_response:
             return block_response
 
         # ── GREY ─────────────────────────────────────────────────────────────
-        grey_response = self._grey_check(request, now)
+        grey_response = self._grey_check(request, now, user_id=user_id, ip=ip)
         if grey_response:
             return grey_response
 
@@ -114,7 +121,9 @@ class AIAnomalyDetector:
     #  BLACK CHECKS
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def _black_check(self, request, now):
+    def _black_check(self, request, now, user_id, ip):
+        # Build the right filter: authenticated users by user_id, anon by IP
+        lookup = {'user_id': user_id} if user_id else {'ip_address': ip}
 
         # 1. Empty user agent
         if not request.META.get('HTTP_USER_AGENT'):
@@ -123,18 +132,14 @@ class AIAnomalyDetector:
         # 2. 50+ requests in last 10 seconds
         last_10s = now - timedelta(seconds=10)
         count_10s = RequestLog.objects.filter(
-            user_id=request.user.id,
-            timestamp__gte=last_10s
+            timestamp__gte=last_10s, **lookup
         ).count()
         if count_10s >= 50:
             return self._block(request)
 
         # 3. 75%+ error rate in last 2 minutes (min 10 requests)
         last_2min = now - timedelta(minutes=2)
-        qs_2min = RequestLog.objects.filter(
-            user_id=request.user.id,
-            timestamp__gte=last_2min
-        )
+        qs_2min = RequestLog.objects.filter(timestamp__gte=last_2min, **lookup)
         total_2min = qs_2min.count()
         if total_2min >= 10:
             error_count = qs_2min.filter(status_code__gte=400).count()
@@ -148,21 +153,21 @@ class AIAnomalyDetector:
     #  GREY CHECKS
     # ═══════════════════════════════════════════════════════════════════════════
 
-    def _grey_check(self, request, now):
-        score, payload = self._score_request(request, now)
+    def _grey_check(self, request, now, user_id, ip):
+        score, payload = self._score_request(request, now, user_id=user_id, ip=ip)
 
         if score <= 0:
             return None
 
-        # Hard block - score so high AI is not needed
+        # Hard block — score so high AI is not needed
         if score >= self.grey_hard_block:
             return self._block(request)
 
-        # Soft grey - let request through, ask AI in background ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+        # Soft grey — let request through, ask AI in background
         if score >= self.grey_threshold:
             thread = threading.Thread(
                 target=self._async_ai_check,
-                args=(request.user.id, payload),
+                args=(user_id, ip, payload),
                 daemon=True
             )
             thread.start()
@@ -170,20 +175,19 @@ class AIAnomalyDetector:
         return None
 
 
-    def _score_request(self, request, now):
+    def _score_request(self, request, now, user_id, ip):
         """
         Returns (score, raw_payload_for_ai).
         Score is computed internally and never passed to AI.
         Payload contains only raw behavioral facts.
         """
         score = 0
-        user_id = request.user.id
+        lookup = {'user_id': user_id} if user_id else {'ip_address': ip}
 
-        # ── GRACE PERIOD: new users are not scored ───────────────────────────
+        # ── GRACE PERIOD: new users/IPs are not scored ───────────────────────
         last_24h = now - timedelta(hours=24)
         historical_count = RequestLog.objects.filter(
-            user_id=user_id,
-            timestamp__gte=last_24h
+            timestamp__gte=last_24h, **lookup
         ).count()
         if historical_count < NEW_USER_GRACE_LIMIT:
             return 0, {}
@@ -196,23 +200,19 @@ class AIAnomalyDetector:
         last_40min = now - timedelta(minutes=40)
 
         count_10s = RequestLog.objects.filter(
-            user_id=user_id,
-            timestamp__gte=last_10s
+            timestamp__gte=last_10s, **lookup
         ).count()
 
         qs_2min = RequestLog.objects.filter(
-            user_id=user_id,
-            timestamp__gte=last_2min
+            timestamp__gte=last_2min, **lookup
         )
-
         total_2min  = qs_2min.count()
         error_count = qs_2min.filter(status_code__gte=400).count() if total_2min else 0
         error_rate  = (error_count / total_2min * 100) if total_2min else 0
 
         recent_paths = list(
             RequestLog.objects.filter(
-                user_id=user_id,
-                timestamp__gte=last_1min
+                timestamp__gte=last_1min, **lookup
             ).values_list('path', flat=True)
         )
         distinct_paths = len(set(recent_paths))
@@ -247,9 +247,9 @@ class AIAnomalyDetector:
 
         # 7. Burst after long idle on same endpoint
         was_idle = not RequestLog.objects.filter(
-            user_id=user_id,
             timestamp__gte=last_40min,
-            timestamp__lt=last_30min
+            timestamp__lt=last_30min,
+            **lookup
         ).exists()
         if was_idle and count_10s >= 15 and distinct_paths <= 2:
             score += W_BURST_SAME_ENDPOINT
@@ -302,20 +302,31 @@ class AIAnomalyDetector:
         return consecutive >= (threshold - 1)
 
 
-    def _async_ai_check(self, user_id, payload):
+    def _async_ai_check(self, user_id, ip_address, payload):
         """
         Runs in background thread. Asks AI with raw payload only.
-        If AI says BLOCK, flag user in DB for next request.
+        If AI says BLOCK, create a BannedUser row so the NEXT request is blocked.
+
+        Why next request and not this one?
+            Because this runs async — the current request has already been
+            let through (soft grey zone). Banning takes effect from now on.
         """
         try:
             cfg = getattr(settings, 'SMART_MIDDLEWARE', {})
-            verdict = ask_ai_verdict(payload, cfg)                     # utils function
+            verdict = ask_ai_verdict(payload, cfg)
             if verdict == "BLOCK":
-                RequestLog.objects.filter(user_id=user_id).update(
-                    ai_flagged=True                                     # add this field to your model
-                )
+                if user_id:
+                    BannedUser.objects.get_or_create(
+                        user_id=user_id,
+                        defaults={'reason': 'AI anomaly detection (async)'}
+                    )
+                elif ip_address:
+                    BannedUser.objects.get_or_create(
+                        ip_address=ip_address,
+                        defaults={'reason': 'AI anomaly detection (async, anonymous)'}
+                    )
         except Exception:
-            pass                                                        # AI failure never blocks the request
+            pass  # AI failure never blocks the request
 
 
     @staticmethod

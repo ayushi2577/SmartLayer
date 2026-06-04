@@ -20,7 +20,7 @@ class WatchLog:
         response_time_ms=(end-start)*1000                                                   #in milliseconds
 
         RequestLog.objects.create(user_id=request.user.id if request.user.is_authenticated else None,
-                        ip_address=request.META.get('REMOTE_ADDR'),
+                        ip_address=request.META.get('REMOTE_ADDR') if not request.user.is_authenticated else None,
                         method=request.method, 
                         path=request.path, 
                         status_code=response.status_code, 
