@@ -37,4 +37,14 @@ Watch log counts the timme in which backend reposnds to the client.
 then it should be in starting ?
 but starting is with corsheaders and other and we have our ratelimiter that must be at last 
 so if the user have other middleware's impllemented how can we hadle order pressure
+
+
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'smartlayer.middleware.AIRequestValidator',    # 1st — block bad requests
+    'smartlayer.middleware.AIAnomalyDetector',     # 2nd — detect patterns
+    'corsheaders.middleware.CorsMiddleware',        # 3rd — CORS
+    'smartlayer.middleware.WatchLog',              # 4th — log everything
+    'smartlayer.middleware.RateLimiter',           # last — rate limit
+]
 """

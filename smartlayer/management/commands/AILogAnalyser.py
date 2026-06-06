@@ -15,7 +15,7 @@ provide the summary without AI insights, to avoid breaking the app.
 from django.core.management.base import BaseCommand
 from datetime import date,timedelta
 from django.db.models import Avg,Count
-from smart_layer.middleware.utils import ask_ai_text
+from smartlayer.middleware.utils import ask_ai_text
 from django.conf import settings
 
 
