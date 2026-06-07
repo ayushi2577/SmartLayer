@@ -6,7 +6,9 @@ If it finds 1 or 2 suspicious patterns then it calls the AI to get a confidence 
 If the confidence score is above 85 then it blocks the request.
 configuration needed in settings.py
 SMART_MIDDLEWARE = {
-    'api_key': 'your_api_key',
+    'AI_API_KEY': 'your_ai_api_key',
+    'AI_BASE_URL': 'https://api.groq.com/openai/v1',
+    'AI_MODEL': 'llama3-8b-8192',
     }
 #currently only supports GROQ but can be extended to support other AI providers in future
 if no api key is provided or if AI call fails for any reason, the middleware will fail open and allow the request to go through (to avoid breaking the app).
@@ -16,7 +18,7 @@ import re
 from django.http import JsonResponse
 from urllib.parse import unquote
 import httpx
-from .utils import ask_ai_score
+from ..utils import ask_ai_score
 from django.conf import settings
 
 SUSPICIOUS_PATTERNS = [

@@ -5,7 +5,7 @@ Basically populated RequestLog model with all the info about the request.
 """
 
 import time
-from .models import RequestLog
+from ..models import RequestLog
 
 class WatchLog:
     def __init__(self, get_response):
@@ -33,11 +33,6 @@ class WatchLog:
 
 #========================    Q&A    ====================================================================
 """
-Watch log counts the timme in which backend reposnds to the client.
-then it should be in starting ?
-but starting is with corsheaders and other and we have our ratelimiter that must be at last 
-so if the user have other middleware's impllemented how can we hadle order pressure
-
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

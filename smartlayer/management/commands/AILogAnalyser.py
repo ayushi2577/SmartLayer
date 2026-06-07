@@ -5,7 +5,9 @@ identify slow endpoints, spot error patterns, and get actionable recommendations
 
 Minimal configuration needed in settings.py
 SMART_MIDDLEWARE = {
-    'api_key': 'your_api_key',
+        'AI_API_KEY': 'your_ai_api_key',
+        'AI_BASE_URL': 'https://api.groq.com/openai/v1',
+        'AI_MODEL': 'llama3-8b-8192',
     }
 
 Currently only supports GROQ but can be extended to support other AI providers in future
@@ -15,7 +17,7 @@ provide the summary without AI insights, to avoid breaking the app.
 from django.core.management.base import BaseCommand
 from datetime import date,timedelta
 from django.db.models import Avg,Count
-from smartlayer.middleware.utils import ask_ai_text
+from smartlayer.utils import ask_ai_text
 from django.conf import settings
 
 
@@ -23,7 +25,7 @@ class Command(BaseCommand):
     help = 'Analyse logs'
     def handle(self, *args, **options):
         
-        from middleware.models import RequestLog
+        from smartlayer.models import RequestLog
         
         yesterday = date.today() - timedelta(days=1)
         logs=RequestLog.objects.filter(timestamp__date=yesterday)

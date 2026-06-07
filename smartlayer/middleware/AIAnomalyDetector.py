@@ -20,7 +20,9 @@ WHITE:
 
 Configuration in settings.py:
     SMART_MIDDLEWARE = {
-        'api_key': 'your_groq_api_key',
+        'AI_API_KEY': 'your_ai_api_key',
+        'AI_BASE_URL': 'https://api.groq.com/openai/v1',
+        'AI_MODEL': 'llama3-8b-8192',
         'grey_suspicion_threshold': 4,       # default 4
         'grey_hard_block_score': 8,          # default 8, block without AI
         'grey_sensitive_paths': [            # optional, has defaults
@@ -41,8 +43,8 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 
-from .models import RequestLog, BannedUser
-from .utils import ask_ai_verdict
+from ..models import RequestLog, BannedUser
+from ..utils import ask_ai_verdict
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

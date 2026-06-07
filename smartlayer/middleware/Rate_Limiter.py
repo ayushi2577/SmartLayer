@@ -34,7 +34,7 @@ Scope checking Precedence -: Lifetime -> per day -> per hour -> per minute
 from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
-from .models import UserRequestCount
+from ..models import UserRequestCount
 from django.db.models import F
 
 
