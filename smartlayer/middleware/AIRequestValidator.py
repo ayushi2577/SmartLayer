@@ -95,6 +95,7 @@ Reply with ONLY a number 0-100.
 0 = definitely safe
 100 = definitely malicious
 """
+
 class AIRequestValidator:
 
     def __init__(self, get_response):

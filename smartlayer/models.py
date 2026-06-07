@@ -106,3 +106,15 @@ class UserRequestCount(models.Model):
 
     class Meta:
         unique_together = ['user', 'path', 'plan_field']  # one row per user per path per plan
+
+class DailyReport(models.Model):
+    date       = models.DateField(unique=True)
+    report     = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = 'smart_layer'
+        ordering  = ['-date']
+
+    def __str__(self):
+        return f"Report — {self.date}"
