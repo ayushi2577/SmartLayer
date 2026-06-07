@@ -75,7 +75,7 @@ class RateLimiter:
         lifetime = path_limits.get('lifetime')              # lifetime of limit
 
         if lifetime:
-            record, created = UserRequestCount.objects.get_or_create(user=request.user, path=request.path)
+            record, created = UserRequestCount.objects.get_or_create(user=request.user, path=request.path, plan_field=user_plan)
             count = record.lifetime_count
             if count >= lifetime:
                 request._was_blocked = True

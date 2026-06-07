@@ -1,48 +1,52 @@
-# Python cache
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-
-# Virtual environment
-venv/
-env/
-ENV/
-
-# Django stuff
-*.log
-db.sqlite3
-media/
-
-# Environment variables
-.env
-
-# VS Code
-.vscode/
-
-# PyCharm
-.idea/
-
-# Static files collected by Django
-staticfiles/
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Migration cache
-*.sqlite3
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-
-# Package files
+*.pyo
+*.pyd
+.Python
+*.egg
 *.egg-info/
 dist/
 build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
 
-# Node modules (if using React/frontend)
-node_modules/
+# Virtual environments
+venv/
+env/
+.env
+.venv
+ENV/
 
-desktop.ini
+# Django
+*.log
+db.sqlite3
+media/
+staticfiles/
+
+# Migrations (keep your own, ignore nothing here actually)
+# DO NOT ignore migrations — commit them
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Distribution
+dist/
+build/
+*.egg-info/
