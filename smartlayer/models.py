@@ -113,7 +113,7 @@ class DailyReport(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        app_label = 'smart_layer'
+        app_label = 'smartlayer'
         ordering  = ['-date']
 
     def __str__(self):
