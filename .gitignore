@@ -50,3 +50,5 @@ htmlcov/
 dist/
 build/
 *.egg-info/
+
+desktop.ini
