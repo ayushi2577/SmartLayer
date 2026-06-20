@@ -16,7 +16,7 @@ SMART_MIDDLEWARE={
             },
         },
         'pro': {
-            '/api/v1/users/1': {
+            '/api/v1/users/42': {
                 'per_minute': 20,
                 'per_hour': 200,
                 'per_day': 2000,
@@ -37,6 +37,16 @@ from django.http import JsonResponse
 from ..models import UserRequestCount
 from django.db.models import F
 
+def get_path_limits(limits: dict, request_path: str) -> dict | None:
+    if request_path in limits:
+        return limits[request_path]
+    
+    # longest matching prefix wins
+    matches = [p for p in limits if request_path.startswith(p)]
+    if matches:
+        return limits[max(matches, key=len)]
+    
+    return None
 
 
 class RateLimiter:
@@ -63,7 +73,7 @@ class RateLimiter:
             response = self.get_response(request)
             return response
         
-        path_limits = limits.get(request.path)              # limit for incoming path
+        path_limits = get_path_limits(limits, request.path)             # limit for incoming path
 
         if path_limits is None:                             # path not rate limited - let through
             response = self.get_response(request)
