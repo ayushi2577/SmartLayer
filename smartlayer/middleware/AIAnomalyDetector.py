@@ -31,8 +31,10 @@ Configuration in settings.py:
         ],
     }
 
-Currently only supports GROQ. If no API key is provided or AI call fails,
+Works with any OpenAI-compatible provider (Groq, OpenAI, Gemini, Ollama, etc.)
+via AI_BASE_URL. If no API key is provided or AI call fails,
 middleware will still run and fall back to allowing the request through.
+
 """
 
 import re

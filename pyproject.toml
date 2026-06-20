@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    {name = "Your Name", email = "your@email.com"}
+    {name = "Ayushi Agrawal", email = "ayushiagrawal2507@email.com"}
 ]
 keywords = ["django", "middleware", "ai", "security", "rate-limiting"]
 classifiers = [
@@ -25,8 +25,8 @@ scheduler = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourname/SmartLayer"
-Repository = "https://github.com/yourname/SmartLayer"
+Homepage = "https://github.com/ayushi2577/SmartLayer"
+Repository = "https://github.com/ayushi2577/SmartLayer"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
