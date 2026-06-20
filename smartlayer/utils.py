@@ -2,7 +2,7 @@ import httpx
 
 def call_ai(prompt: str, config: dict, max_tokens: int = 5, temperature: float = 0.0) -> str:
     """
-    Universal AI caller — works with any OpenAI-compatible provider.
+    Universal AI caller - works with any OpenAI-compatible provider.
     
     Provider URLs:
         Groq:     https://api.groq.com/openai/v1
@@ -33,7 +33,7 @@ def call_ai(prompt: str, config: dict, max_tokens: int = 5, temperature: float =
 
 
 def ask_ai_score(body: str, config: dict, validation_prompt: str) -> int:
-    """For AIRequestValidator — returns confidence score 0-100"""
+    """For AIRequestValidator - returns confidence score 0-100"""
     prompt = validation_prompt.format(body=body[:500])
     result = call_ai(prompt, config, max_tokens=5, temperature=0.0)
     try:
@@ -43,18 +43,41 @@ def ask_ai_score(body: str, config: dict, validation_prompt: str) -> int:
 
 
 def ask_ai_text(prompt: str, config: dict) -> str:
-    """For AILogAnalyser — returns plain English text"""
+    """For AILogAnalyser - returns plain English text"""
     return call_ai(prompt, config, max_tokens=500, temperature=0.7)
 
 
-def ask_ai_verdict(payload: dict, config: dict) -> str:
-    """For AIAnomalyDetector — returns BLOCK or ALLOW"""
+def ask_ai_verdict(payload: dict, config: dict) -> dict:
+    """
+    For AIAnomalyDetector - returns {'verdict': 'BLOCK'/'ALLOW', 'ban_hours': int|None}
+
+    Ban durations the AI can assign:
+        BLOCK:1    - 1 hour   (minor violation, rate limit abuse)
+        BLOCK:24   - 24 hours (suspicious pattern, likely bot)
+        BLOCK:168  - 7 days   (clear attack, scanner, malicious probe)
+
+    If AI response is malformed, defaults to 24h ban.
+    """
     import json
     prompt = """
     You are a security expert. Based on this raw API behaviour data, is this user a bot or attacker?
     Data: {payload}
-    Reply with ONLY one word: BLOCK or ALLOW.
+
+    Reply with ONLY one of these exact strings (no explanation, no punctuation):
+    ALLOW
+    BLOCK:1       (ban for 1 hour  - minor violation, rate limit abuse)
+    BLOCK:24      (ban for 24 hours - suspicious pattern, likely bot)
+    BLOCK:168     (ban for 7 days  - clear attack, scanner, or malicious probe)
     """.format(payload=json.dumps(payload, indent=2))
-    
-    result = call_ai(prompt, config, max_tokens=5, temperature=0.0)
-    return "BLOCK" if "BLOCK" in result.upper() else "ALLOW"
+
+    result = call_ai(prompt, config, max_tokens=10, temperature=0.0).upper()
+
+    if result.startswith("BLOCK"):
+        parts = result.split(":")
+        try:
+            hours = int(parts[1]) if len(parts) > 1 else 24
+        except (ValueError, IndexError):
+            hours = 24
+        return {"verdict": "BLOCK", "ban_hours": hours}
+
+    return {"verdict": "ALLOW", "ban_hours": None}
