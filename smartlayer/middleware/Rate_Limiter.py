@@ -84,27 +84,27 @@ class RateLimiter:
 
         if per_day:
             key = f"rl:day:{request.user.id}:{user_plan}:{request.path}"
-            count = cache.get(key, 0)
-            if count >= per_day:
+            cache.add(key, 0, 3600 * 24)  # create if not exists
+            count = cache.incr(key)    
+            if count > per_day:
                 request._was_blocked = True
-                return JsonResponse({"error": "rate limit exceeded for today"}, status=429)
-            cache.set(key, count + 1, 3600*24)  
+                return JsonResponse({"error": "rate limit exceeded for today"}, status=429) 
 
         if per_hour:
             key = f"rl:hour:{request.user.id}:{user_plan}:{request.path}"
-            count = cache.get(key, 0)
-            if count >= per_hour:
+            cache.add(key, 0, 3600)  # create if not exists
+            count = cache.incr(key)
+            if count > per_hour:
                 request._was_blocked = True
                 return JsonResponse({"error": "rate limit exceeded for this hour"}, status=429)
-            cache.set(key, count + 1, 3600)
 
         if per_minute:
             key = f"rl:min:{request.user.id}:{user_plan}:{request.path}"
-            count = cache.get(key, 0)
-            if count >= per_minute:
+            cache.add(key, 0, 60)  # create if not exists
+            count = cache.incr(key)
+            if count > per_minute:
                 request._was_blocked = True
                 return JsonResponse({"error": "too many requests per minute"}, status=429)
-            cache.set(key, count + 1, 60)
             
         response=self.get_response(request)
         return response
