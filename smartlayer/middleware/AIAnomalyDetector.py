@@ -356,12 +356,12 @@ class AIAnomalyDetector:
                 reason     = f'AI anomaly detection - {result["ban_hours"]}h ban'
 
                 if user_id:
-                    BannedUser.objects.get_or_create(
+                    BannedUser.objects.update_or_create(
                         user_id=user_id,
                         defaults={'reason': reason, 'expires_at': expires_at}
                     )
                 elif ip_address:
-                    BannedUser.objects.get_or_create(
+                    BannedUser.objects.update_or_create(
                         ip_address=ip_address,
                         defaults={'reason': reason, 'expires_at': expires_at}
                     )
@@ -382,12 +382,12 @@ class AIAnomalyDetector:
         if ban_hours and (user_id or ip):
             expires_at = timezone.now() + timedelta(hours=ban_hours)
             if user_id:
-                BannedUser.objects.get_or_create(
+                BannedUser.objects.update_or_create(
                     user_id=user_id,
                     defaults={'reason': reason, 'expires_at': expires_at}
                 )
             elif ip:
-                BannedUser.objects.get_or_create(
+                BannedUser.objects.update_or_create(
                     ip_address=ip,
                     defaults={'reason': reason, 'expires_at': expires_at}
                 )
