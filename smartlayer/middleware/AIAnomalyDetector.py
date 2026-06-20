@@ -5,18 +5,22 @@ Detects anomalies in request patterns and blocks malicious requests.
 Patterns are divided into 3 categories: BLACK, GREY, WHITE.
 
 BLACK:
-    1. Empty user_agent → BLOCK
-    2. 50+ requests in last 10 seconds → BLOCK
-    3. 75%+ error rate in last 2 minutes (min 10 requests) → BLOCK
+    1. Empty user_agent → BLOCK (24h ban)
+    2. 50+ requests in last 10 seconds → BLOCK (1h ban)
+    3. 75%+ error rate in last 2 minutes (min 10 requests) → BLOCK (24h ban)
 
 GREY:
     Suspicion scoring system. If score >= threshold → ask AI.
     AI receives raw behavioral data only (no score, no labels).
-    If score >= 8 → block immediately without AI call.
+    AI responds with BLOCK:1 / BLOCK:24 / BLOCK:168 / ALLOW.
+    If score >= 8 → block immediately without AI call (7 day ban).
     If score 4-7 → let request through, ask AI async, ban on next request.
 
 WHITE:
     Not BLACK, not GREY → let through.
+
+All bans are time-limited and expire automatically via BannedUser.is_banned().
+No admin action is needed to lift expired bans.
 
 Configuration in settings.py:
     SMART_MIDDLEWARE = {
@@ -34,7 +38,6 @@ Configuration in settings.py:
 Works with any OpenAI-compatible provider (Groq, OpenAI, Gemini, Ollama, etc.)
 via AI_BASE_URL. If no API key is provided or AI call fails,
 middleware will still run and fall back to allowing the request through.
-
 """
 
 import re
@@ -46,7 +49,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 
 from ..models import RequestLog, BannedUser
-from ..utils import ask_ai_verdict
+from ..utils import ask_ai_verdict, get_client_ip
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -78,6 +81,12 @@ W_SEQUENTIAL_ID_PROBING = 5   # /users/1 /users/2 /users/3...
 W_BURST_SAME_ENDPOINT   = 2   # burst after idle, same endpoint
 W_UNAUTHENTICATED       = 1
 
+# Ban durations for BLACK checks (deterministic, no AI needed)
+BAN_HOURS_EMPTY_UA      = 24   # Empty user agent - likely bot
+BAN_HOURS_RATE_LIMIT    = 1    # 50+ req/10s - burst, may be accidental
+BAN_HOURS_ERROR_RATE    = 24   # 75%+ error rate - scanning or broken client
+BAN_HOURS_HARD_BLOCK    = 168  # Grey score >= 8 - high confidence threat (7 days)
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  MIDDLEWARE
@@ -88,9 +97,9 @@ class AIAnomalyDetector:
     def __init__(self, get_response):
         self.get_response = get_response
         cfg = getattr(settings, 'SMART_MIDDLEWARE', {})
-        self.grey_threshold     = cfg.get('grey_suspicion_threshold', 4)
-        self.grey_hard_block    = cfg.get('grey_hard_block_score', 8)
-        self.sensitive_paths    = cfg.get('grey_sensitive_paths', DEFAULT_SENSITIVE_PATHS)
+        self.grey_threshold  = cfg.get('grey_suspicion_threshold', 4)
+        self.grey_hard_block = cfg.get('grey_hard_block_score', 8)
+        self.sensitive_paths = cfg.get('grey_sensitive_paths', DEFAULT_SENSITIVE_PATHS)
 
 
     def __call__(self, request):
@@ -98,7 +107,9 @@ class AIAnomalyDetector:
         # ── BAN CHECK ────────────────────────────────────────────────────────
         # For authenticated users, check by user_id.
         # For anonymous users, check by IP (unauthenticated = no user_id to track).
-        ip = request.META.get('REMOTE_ADDR')
+        # Expired bans are ignored automatically inside is_banned().
+
+        ip = get_client_ip(request)   # replaces REMOTE_ADDR
         user_id = request.user.id if request.user.is_authenticated else None
 
         if BannedUser.is_banned(user_id=user_id, ip_address=ip if not user_id else None):
@@ -126,29 +137,44 @@ class AIAnomalyDetector:
     # ═══════════════════════════════════════════════════════════════════════════
 
     def _black_check(self, request, now, user_id, ip):
-        # Build the right filter: authenticated users by user_id, anon by IP
+        """
+        Hard rules - deterministic, no AI needed.
+        Each rule assigns a fixed ban duration appropriate to the severity.
+        """
         lookup = {'user_id': user_id} if user_id else {'ip_address': ip}
 
-        # 1. Empty user agent
+        # 1. Empty user agent - almost always a raw bot/script
         if not request.META.get('HTTP_USER_AGENT'):
-            return self._block(request)
+            return self._block(
+                request, user_id=user_id, ip=ip,
+                ban_hours=BAN_HOURS_EMPTY_UA,
+                reason='Empty user agent'
+            )
 
-        # 2. 50+ requests in last 10 seconds
+        # 2. 50+ requests in last 10 seconds - severe burst
         last_10s = now - timedelta(seconds=10)
         count_10s = RequestLog.objects.filter(
             timestamp__gte=last_10s, **lookup
         ).count()
         if count_10s >= 50:
-            return self._block(request)
+            return self._block(
+                request, user_id=user_id, ip=ip,
+                ban_hours=BAN_HOURS_RATE_LIMIT,
+                reason=f'Rate limit exceeded: {count_10s} requests in 10s'
+            )
 
-        # 3. 75%+ error rate in last 2 minutes (min 10 requests)
+        # 3. 75%+ error rate in last 2 minutes (min 10 requests) - scanner
         last_2min = now - timedelta(minutes=2)
-        qs_2min = RequestLog.objects.filter(timestamp__gte=last_2min, **lookup)
+        qs_2min   = RequestLog.objects.filter(timestamp__gte=last_2min, **lookup)
         total_2min = qs_2min.count()
         if total_2min >= 10:
             error_count = qs_2min.filter(status_code__gte=400).count()
             if (error_count / total_2min * 100) >= 75:
-                return self._block(request)
+                return self._block(
+                    request, user_id=user_id, ip=ip,
+                    ban_hours=BAN_HOURS_ERROR_RATE,
+                    reason=f'High error rate: {error_count}/{total_2min} requests in 2min'
+                )
 
         return None
 
@@ -163,11 +189,16 @@ class AIAnomalyDetector:
         if score <= 0:
             return None
 
-        # Hard block — score so high AI is not needed
+        # Hard block - score so high AI is not needed, assign max ban duration
         if score >= self.grey_hard_block:
-            return self._block(request)
+            return self._block(
+                request, user_id=user_id, ip=ip,
+                ban_hours=BAN_HOURS_HARD_BLOCK,
+                reason=f'Grey hard block: suspicion score {score}'
+            )
 
-        # Soft grey — let request through, ask AI in background
+        # Soft grey - let request through, ask AI in background
+        # AI will determine verdict + exact ban duration
         if score >= self.grey_threshold:
             thread = threading.Thread(
                 target=self._async_ai_check,
@@ -309,31 +340,56 @@ class AIAnomalyDetector:
     def _async_ai_check(self, user_id, ip_address, payload):
         """
         Runs in background thread. Asks AI with raw payload only.
-        If AI says BLOCK, create a BannedUser row so the NEXT request is blocked.
+        AI returns verdict + ban duration.
+        If verdict is BLOCK, creates a BannedUser row with expires_at set.
 
         Why next request and not this one?
-            Because this runs async — the current request has already been
+            Because this runs async - the current request has already been
             let through (soft grey zone). Banning takes effect from now on.
         """
         try:
-            cfg = getattr(settings, 'SMART_MIDDLEWARE', {})
-            verdict = ask_ai_verdict(payload, cfg)
-            if verdict == "BLOCK":
+            cfg    = getattr(settings, 'SMART_MIDDLEWARE', {})
+            result = ask_ai_verdict(payload, cfg)
+
+            if result["verdict"] == "BLOCK":
+                expires_at = timezone.now() + timedelta(hours=result["ban_hours"])
+                reason     = f'AI anomaly detection - {result["ban_hours"]}h ban'
+
                 if user_id:
                     BannedUser.objects.get_or_create(
                         user_id=user_id,
-                        defaults={'reason': 'AI anomaly detection (async)'}
+                        defaults={'reason': reason, 'expires_at': expires_at}
                     )
                 elif ip_address:
                     BannedUser.objects.get_or_create(
                         ip_address=ip_address,
-                        defaults={'reason': 'AI anomaly detection (async, anonymous)'}
+                        defaults={'reason': reason, 'expires_at': expires_at}
                     )
         except Exception:
             pass  # AI failure never blocks the request
 
 
     @staticmethod
-    def _block(request):
+    def _block(request, user_id=None, ip=None, ban_hours=24, reason='Automated block'):
+        """
+        Immediately blocks the current request and writes a time-limited ban.
+        Ban expires automatically - no admin action needed.
+
+        ban_hours=0 or ban_hours=None → no ban record written (response only).
+        """
         request._was_blocked = True
+
+        if ban_hours and (user_id or ip):
+            expires_at = timezone.now() + timedelta(hours=ban_hours)
+            if user_id:
+                BannedUser.objects.get_or_create(
+                    user_id=user_id,
+                    defaults={'reason': reason, 'expires_at': expires_at}
+                )
+            elif ip:
+                BannedUser.objects.get_or_create(
+                    ip_address=ip,
+                    defaults={'reason': reason, 'expires_at': expires_at}
+                )
+
         return JsonResponse({"error": "blocked"}, status=403)

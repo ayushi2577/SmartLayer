@@ -1,5 +1,28 @@
 import httpx
 
+def get_client_ip(request) -> str:
+    """
+    Returns the real client IP, proxy-aware.
+    Set TRUST_PROXY: True in SMART_MIDDLEWARE only when behind Nginx/ALB/Cloudflare.
+    Never trust X-Forwarded-For without it - clients can spoof it.
+    """
+    from django.conf import settings
+    cfg         = getattr(settings, 'SMART_MIDDLEWARE', {})
+    trust_proxy = cfg.get('TRUST_PROXY', False)
+
+    if trust_proxy:
+        # Cloudflare - single trusted IP, no spoofing risk
+        cf_ip = request.META.get('HTTP_CF_CONNECTING_IP')
+        if cf_ip:
+            return cf_ip.strip()
+
+        # Nginx / ALB - leftmost value is original client
+        xff = request.META.get('HTTP_X_FORWARDED_FOR')
+        if xff:
+            return xff.split(',')[0].strip()
+
+    return request.META.get('REMOTE_ADDR', '')
+
 def call_ai(prompt: str, config: dict, max_tokens: int = 5, temperature: float = 0.0) -> str:
     """
     Universal AI caller - works with any OpenAI-compatible provider.
