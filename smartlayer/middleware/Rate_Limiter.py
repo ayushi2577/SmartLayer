@@ -67,7 +67,7 @@ class RateLimiter:
         plan_field = config.get('PLAN_FIELD', 'plan')       # default to 'plan'
         user_plan = getattr(request.user, plan_field)       # request.user.plan_filed like user.plan or user.subscription
 
-        limits = config['RATE_LIMIT_PLANS'].get(user_plan)  #get all path limits
+        limits = config.get('RATE_LIMIT_PLANS', {}).get(user_plan)  #get all path limits
 
         if limits is None:                                  # plan not found in config - just let through
             response = self.get_response(request)
