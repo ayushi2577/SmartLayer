@@ -27,6 +27,7 @@ Configuration in settings.py:
         'AI_API_KEY': 'your_ai_api_key',
         'AI_BASE_URL': 'https://api.groq.com/openai/v1',
         'AI_MODEL': 'llama3-8b-8192',
+
         'grey_suspicion_threshold': 4,       # default 4
         'grey_hard_block_score': 8,          # default 8, block without AI
         'grey_sensitive_paths': [            # optional, has defaults
@@ -48,13 +49,16 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 
+from concurrent.futures import ThreadPoolExecutor
+import atexit
+
 from ..models import RequestLog, BannedUser
 from ..utils import ask_ai_verdict, get_client_ip
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ======================================================================
 #  CONSTANTS
-# ═══════════════════════════════════════════════════════════════════════════════
+# ======================================================================
 
 DEFAULT_SENSITIVE_PATHS = [
     '/admin', '/.env', '/config', '/phpmyadmin',
@@ -88,11 +92,16 @@ BAN_HOURS_ERROR_RATE    = 24   # 75%+ error rate - scanning or broken client
 BAN_HOURS_HARD_BLOCK    = 168  # Grey score >= 8 - high confidence threat (7 days)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ======================================================================        
 #  MIDDLEWARE
-# ═══════════════════════════════════════════════════════════════════════════════
+# ======================================================================
 
 class AIAnomalyDetector:
+
+    executor=ThreadPoolExecutor(max_workers=4)  # limit to 4 concurrent log writes to avoid overwhelming the DB
+    """class level cuz only one ThreadPoolExecutor is created for the entire lifetime of the server"""
+
+    atexit.register(executor.shutdown,wait=True)  # ensure executor is cleaned up on app exit
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -104,7 +113,7 @@ class AIAnomalyDetector:
 
     def __call__(self, request):
 
-        # ── BAN CHECK ────────────────────────────────────────────────────────
+        # -- BAN CHECK ------------------------------------------------------------
         # For authenticated users, check by user_id.
         # For anonymous users, check by IP (unauthenticated = no user_id to track).
         # Expired bans are ignored automatically inside is_banned().
@@ -115,208 +124,256 @@ class AIAnomalyDetector:
         if BannedUser.is_banned(user_id=user_id, ip_address=ip if not user_id else None):
             request._was_blocked = True
             return JsonResponse({"error": "blocked"}, status=403)
-
-        now = timezone.now()
-
-        # ── BLACK ────────────────────────────────────────────────────────────
-        block_response = self._black_check(request, now, user_id=user_id, ip=ip)
-        if block_response:
-            return block_response
-
-        # ── GREY ─────────────────────────────────────────────────────────────
-        grey_response = self._grey_check(request, now, user_id=user_id, ip=ip)
-        if grey_response:
-            return grey_response
-
-        # ── WHITE ─────────────────────────────────────────────────────────────
+        
+        snapshot = {
+            'user_id' : user_id,
+            'ip'      : ip,
+            'path'    : request.path,
+            'ua'      : request.META.get('HTTP_USER_AGENT', ''),
+            'is_auth' : request.user.is_authenticated,
+            'now'     : timezone.now(),
+        }
+        
+        self.executor.submit(self.analysis, snapshot)      # submit to thread pool for async logging - won't block the response
         return self.get_response(request)
 
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  BLACK CHECKS
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    def _black_check(self, request, now, user_id, ip):
+        
+    
+    def analysis(self, snapshot):
         """
-        Hard rules - deterministic, no AI needed.
-        Each rule assigns a fixed ban duration appropriate to the severity.
-        """
-        lookup = {'user_id': user_id} if user_id else {'ip_address': ip}
+        Runs entirely in background thread.
+        Main thread has already returned the response to the user.
 
-        # 1. Empty user agent - almost always a raw bot/script
-        if not request.META.get('HTTP_USER_AGENT'):
-            return self._block(
-                request, user_id=user_id, ip=ip,
-                ban_hours=BAN_HOURS_EMPTY_UA,
-                reason='Empty user agent'
+        1. One DB query - fetch 40min of logs
+        2. Slice in Python - no more DB queries for counting
+        3. Black check - hard rules
+        4. Grey check - scoring + AI
+        """
+        try:
+            user_id = snapshot['user_id']
+            ip      = snapshot['ip']
+            now     = snapshot['now']
+            lookup  = {'user_id': user_id} if user_id else {'ip_address': ip}
+
+            # -- ONE QUERY ---------------------------------------------
+            # Fetch widest window needed (40min).
+            # Everything else is sliced from this in Python.
+
+            last_40min = now - timedelta(minutes=40)
+            logs = list(
+                RequestLog.objects.filter(
+                    timestamp__gte=last_40min,
+                    **lookup
+                ).values('timestamp', 'status_code', 'path')
             )
 
-        # 2. 50+ requests in last 10 seconds - severe burst
-        last_10s = now - timedelta(seconds=10)
-        count_10s = RequestLog.objects.filter(
-            timestamp__gte=last_10s, **lookup
-        ).count()
-        if count_10s >= 50:
-            return self._block(
-                request, user_id=user_id, ip=ip,
-                ban_hours=BAN_HOURS_RATE_LIMIT,
-                reason=f'Rate limit exceeded: {count_10s} requests in 10s'
+            # -- SLICE ---------------------------------------
+            last_10s   = now - timedelta(seconds=10)
+            last_1min  = now - timedelta(minutes=1)
+            last_2min  = now - timedelta(minutes=2)
+            last_30min = now - timedelta(minutes=30)
+
+            logs_10s  = [l for l in logs if l['timestamp'] >= last_10s]
+            logs_1min = [l for l in logs if l['timestamp'] >= last_1min]
+            logs_2min = [l for l in logs if l['timestamp'] >= last_2min]
+            logs_idle = [l for l in logs if last_40min <= l['timestamp'] < last_30min]
+
+            total_2min  = len(logs_2min)
+            error_count = sum(1 for l in logs_2min if l['status_code'] >= 400)
+            error_rate  = (error_count / total_2min * 100) if total_2min else 0
+            recent_paths = [l['path'] for l in logs_1min]
+
+            behavior = {
+                'count_10s'     : len(logs_10s),
+                'total_2min'    : total_2min,
+                'error_rate'    : error_rate,
+                'error_count'   : error_count,
+                'recent_paths'  : recent_paths,
+                'distinct_paths': len(set(recent_paths)),
+                'was_idle'      : len(logs_idle) == 0,
+            }
+
+            # black first, grey only if black did not ban
+            banned = self._black_check(snapshot, behavior)
+            if not banned:
+                self._grey_check(snapshot, behavior)
+
+        except Exception:
+            pass  # analysis failure never affects the user
+
+
+    # ======================================================================
+    #  BLACK CHECK
+    # ======================================================================
+
+    def _black_check(self, snapshot, behavior):
+        """
+        Hard deterministic rules. No AI needed.
+        Returns True if a ban was written, False otherwise.
+        """
+
+        # 1. Empty user agent
+        if not snapshot['ua']:
+            self._ban(snapshot, BAN_HOURS_EMPTY_UA, 'Empty user agent')
+            return True
+
+        # 2. 50+ requests in last 10 seconds
+        if behavior['count_10s'] >= 50:
+            self._ban(
+                snapshot, BAN_HOURS_RATE_LIMIT,
+                f"Burst: {behavior['count_10s']} requests in 10s"
             )
+            return True
 
-        # 3. 75%+ error rate in last 2 minutes (min 10 requests) - scanner
-        last_2min = now - timedelta(minutes=2)
-        qs_2min   = RequestLog.objects.filter(timestamp__gte=last_2min, **lookup)
-        total_2min = qs_2min.count()
-        if total_2min >= 10:
-            error_count = qs_2min.filter(status_code__gte=400).count()
-            if (error_count / total_2min * 100) >= 75:
-                return self._block(
-                    request, user_id=user_id, ip=ip,
-                    ban_hours=BAN_HOURS_ERROR_RATE,
-                    reason=f'High error rate: {error_count}/{total_2min} requests in 2min'
-                )
+        # 3. 75%+ error rate in last 2 minutes (min 10 requests)
+        if behavior['total_2min'] >= 10 and behavior['error_rate'] >= 75:
+            self._ban(
+                snapshot, BAN_HOURS_ERROR_RATE,
+                f"High error rate: {behavior['error_count']}/{behavior['total_2min']} in 2min"
+            )
+            return True
 
-        return None
+        return False
 
 
-    # ═══════════════════════════════════════════════════════════════════════════
-    #  GREY CHECKS
-    # ═══════════════════════════════════════════════════════════════════════════
+    # ======================================================================
+    #  GREY CHECK
+    # ======================================================================
 
-    def _grey_check(self, request, now, user_id, ip):
-        score, payload = self._score_request(request, now, user_id=user_id, ip=ip)
+    def _grey_check(self, snapshot, behavior):
+        """
+        Scoring system. If score is high enough, ban or ask AI.
+        Already running in background thread - AI call is direct, no new thread.
+        """
+        score = self._score(snapshot, behavior)
 
         if score <= 0:
-            return None
+            return
 
-        # Hard block - score so high AI is not needed, assign max ban duration
+        # score so high we don't need AI - ban immediately
         if score >= self.grey_hard_block:
-            return self._block(
-                request, user_id=user_id, ip=ip,
-                ban_hours=BAN_HOURS_HARD_BLOCK,
-                reason=f'Grey hard block: suspicion score {score}'
+            self._ban(
+                snapshot, BAN_HOURS_HARD_BLOCK,
+                f'Hard block: suspicion score {score}'
             )
+            return
 
-        # Soft grey - let request through, ask AI in background
-        # AI will determine verdict + exact ban duration
+        # borderline - ask AI, it decides ban duration
         if score >= self.grey_threshold:
-            thread = threading.Thread(
-                target=self._async_ai_check,
-                args=(user_id, ip, payload),
-                daemon=True
-            )
-            thread.start()
-
-        return None
+            self._ask_ai_and_ban(snapshot, behavior)
 
 
-    def _score_request(self, request, now, user_id, ip):
+    def _score(self, snapshot, behavior):
         """
-        Returns (score, raw_payload_for_ai).
-        Score is computed internally and never passed to AI.
-        Payload contains only raw behavioral facts.
+        Computes suspicion score from behavior dict.
+        Score is never passed to AI - only raw behavioral facts are.
         """
+    
+
         score = 0
-        lookup = {'user_id': user_id} if user_id else {'ip_address': ip}
-
-        # ── GRACE PERIOD: new users/IPs are not scored ───────────────────────
-        last_24h = now - timedelta(hours=24)
-        historical_count = RequestLog.objects.filter(
-            timestamp__gte=last_24h, **lookup
-        ).count()
-        if historical_count < NEW_USER_GRACE_LIMIT:
-            return 0, {}
-
-        # ── FETCH RECENT DATA (shared across checks) ─────────────────────────
-        last_10s   = now - timedelta(seconds=10)
-        last_1min  = now - timedelta(minutes=1)
-        last_2min  = now - timedelta(minutes=2)
-        last_30min = now - timedelta(minutes=30)
-        last_40min = now - timedelta(minutes=40)
-
-        count_10s = RequestLog.objects.filter(
-            timestamp__gte=last_10s, **lookup
-        ).count()
-
-        qs_2min = RequestLog.objects.filter(
-            timestamp__gte=last_2min, **lookup
-        )
-        total_2min  = qs_2min.count()
-        error_count = qs_2min.filter(status_code__gte=400).count() if total_2min else 0
-        error_rate  = (error_count / total_2min * 100) if total_2min else 0
-
-        recent_paths = list(
-            RequestLog.objects.filter(
-                timestamp__gte=last_1min, **lookup
-            ).values_list('path', flat=True)
-        )
-        distinct_paths = len(set(recent_paths))
-
-        ua = request.META.get('HTTP_USER_AGENT', '').lower()
-
-        # ── SCORING ───────────────────────────────────────────────────────────
+        ua    = snapshot['ua'].lower()
 
         # 1. Suspicious user agent
         if any(kw in ua for kw in SUSPICIOUS_UA_KEYWORDS):
             score += W_SUSPICIOUS_UA
 
         # 2. Elevated rate (20-49/10s) - 50+ is already black
-        if 20 <= count_10s < 50:
+        if 20 <= behavior['count_10s'] < 50:
             score += W_ELEVATED_RATE
 
         # 3. Moderate error rate (40-74%) - 75%+ is already black
-        if total_2min >= 10 and 40 <= error_rate < 75:
+        if behavior['total_2min'] >= 10 and 40 <= behavior['error_rate'] < 75:
             score += W_MODERATE_ERROR_RATE
 
-        # 4. Sensitive path checking
-        if any(request.path.startswith(p) for p in self.sensitive_paths):
+        # 4. Sensitive path
+        if not snapshot['is_auth'] and any(snapshot['path'].startswith(p) for p in self.sensitive_paths):
             score += W_SENSITIVE_PATH
 
-        # 5. Endpoint scanning - too many distinct paths in 1 min
-        if distinct_paths >= 15:
+        # 5. Endpoint scanning - 15+ distinct paths in 1 min
+        if behavior['distinct_paths'] >= 25:
             score += W_ENDPOINT_SCANNING
 
-        # 6. Sequential ID checking - /users/1 /users/2 /users/3
-        if self._is_sequential_probing(recent_paths):
+        # 6. Sequential ID probing - /users/1 /users/2 /users/3
+        if self._is_sequential_probing(behavior['recent_paths']):
             score += W_SEQUENTIAL_ID_PROBING
 
         # 7. Burst after long idle on same endpoint
-        was_idle = not RequestLog.objects.filter(
-            timestamp__gte=last_40min,
-            timestamp__lt=last_30min,
-            **lookup
-        ).exists()
-        if was_idle and count_10s >= 15 and distinct_paths <= 2:
+        if behavior['was_idle'] and behavior['count_10s'] >= 15 and behavior['distinct_paths'] <= 2:
             score += W_BURST_SAME_ENDPOINT
 
-        # 8. Unauthenticated user
-        if not request.user.is_authenticated:
+        # 8. Unauthenticated
+        if not snapshot['is_auth']:
             score += W_UNAUTHENTICATED
 
-        # ── BUILD RAW PAYLOAD FOR AI (no score, no labels) ───────────────────
-        payload = {
-            "user_agent"          : request.META.get('HTTP_USER_AGENT'),
-            "is_authenticated"    : request.user.is_authenticated,
-            "current_path"        : request.path,
-            "recent_endpoints"    : recent_paths,
-            "request_count_10s"   : count_10s,
-            "distinct_paths_1min" : distinct_paths,
-            "error_rate_2min"     : round(error_rate, 2),
-            "total_requests_2min" : total_2min,
-        }
-
-        return score, payload
+        return score
 
 
-    # ═══════════════════════════════════════════════════════════════════════════
+    # ======================================================================
     #  HELPERS
-    # ═══════════════════════════════════════════════════════════════════════════
+    # ======================================================================
 
-    def _is_sequential_probing(self, paths, threshold=5):
+    def _ask_ai_and_ban(self, snapshot, behavior):
         """
-        Detects if recent paths contain sequentially incrementing IDs.
-        e.g. /users/1 /users/2 /users/3 → True
-             /products/4 /products/89 /products/247 → False (random = human)
+        Calls AI with raw behavioral facts.
+        AI returns verdict + ban duration.
+        Already in background thread - no new thread needed.
+        """
+        try:
+            cfg = getattr(settings, 'SMART_MIDDLEWARE', {})
+
+            payload = {
+                'user_agent'          : snapshot['ua'],
+                'is_authenticated'    : snapshot['is_auth'],
+                'current_path'        : snapshot['path'],
+                'recent_endpoints'    : behavior['recent_paths'],
+                'request_count_10s'   : behavior['count_10s'],
+                'distinct_paths_1min' : behavior['distinct_paths'],
+                'error_rate_2min'     : round(behavior['error_rate'], 2),
+                'total_requests_2min' : behavior['total_2min'],
+            }
+
+            result = ask_ai_verdict(payload, cfg)
+
+            if result['verdict'] == 'BLOCK':
+                self._ban(
+                    snapshot,
+                    result['ban_hours'],
+                    f"AI verdict: {result['ban_hours']}h ban"
+                )
+        except Exception:
+            pass  # AI failure never bans anyone
+
+
+    def _ban(self, snapshot, ban_hours, reason):
+        """
+        Writes a time-limited ban to DB.
+        Expires automatically - no admin action needed.
+        """
+        try:
+            expires_at = timezone.now() + timedelta(hours=ban_hours)
+
+            if snapshot['user_id']:
+                BannedUser.objects.update_or_create(
+                    user_id=snapshot['user_id'],
+                    defaults={'reason': reason, 'expires_at': expires_at}
+                )
+            else:
+                BannedUser.objects.update_or_create(
+                    ip_address=snapshot['ip'],
+                    defaults={'reason': reason, 'expires_at': expires_at}
+                )
+        except Exception:
+            pass  # DB failure never crashes the middleware
+
+
+    @staticmethod
+    def _is_sequential_probing(paths, threshold=5):
+        """
+        Detects sequentially incrementing IDs in recent paths.
+        /users/1 /users/2 /users/3 → True  (sequential probe)
+        /products/4 /products/89 /products/247 → False (random = human)
+
+        Looks for a single unbroken run, not scattered pairs.
         """
         id_pattern = re.compile(r'(\d+)$')
         numbers = []
@@ -330,66 +387,15 @@ class AIAnomalyDetector:
             return False
 
         numbers.sort()
-        consecutive = sum(
-            1 for i in range(1, len(numbers))
-            if numbers[i] - numbers[i - 1] == 1
-        )
-        return consecutive >= (threshold - 1)
 
+        # find longest consecutive run
+        max_run = 1
+        current_run = 1
+        for i in range(1, len(numbers)):
+            if numbers[i] - numbers[i - 1] == 1:
+                current_run += 1
+                max_run = max(max_run, current_run)
+            else:
+                current_run = 1
 
-    def _async_ai_check(self, user_id, ip_address, payload):
-        """
-        Runs in background thread. Asks AI with raw payload only.
-        AI returns verdict + ban duration.
-        If verdict is BLOCK, creates a BannedUser row with expires_at set.
-
-        Why next request and not this one?
-            Because this runs async - the current request has already been
-            let through (soft grey zone). Banning takes effect from now on.
-        """
-        try:
-            cfg    = getattr(settings, 'SMART_MIDDLEWARE', {})
-            result = ask_ai_verdict(payload, cfg)
-
-            if result["verdict"] == "BLOCK":
-                expires_at = timezone.now() + timedelta(hours=result["ban_hours"])
-                reason     = f'AI anomaly detection - {result["ban_hours"]}h ban'
-
-                if user_id:
-                    BannedUser.objects.update_or_create(
-                        user_id=user_id,
-                        defaults={'reason': reason, 'expires_at': expires_at}
-                    )
-                elif ip_address:
-                    BannedUser.objects.update_or_create(
-                        ip_address=ip_address,
-                        defaults={'reason': reason, 'expires_at': expires_at}
-                    )
-        except Exception:
-            pass  # AI failure never blocks the request
-
-
-    @staticmethod
-    def _block(request, user_id=None, ip=None, ban_hours=24, reason='Automated block'):
-        """
-        Immediately blocks the current request and writes a time-limited ban.
-        Ban expires automatically - no admin action needed.
-
-        ban_hours=0 or ban_hours=None → no ban record written (response only).
-        """
-        request._was_blocked = True
-
-        if ban_hours and (user_id or ip):
-            expires_at = timezone.now() + timedelta(hours=ban_hours)
-            if user_id:
-                BannedUser.objects.update_or_create(
-                    user_id=user_id,
-                    defaults={'reason': reason, 'expires_at': expires_at}
-                )
-            elif ip:
-                BannedUser.objects.update_or_create(
-                    ip_address=ip,
-                    defaults={'reason': reason, 'expires_at': expires_at}
-                )
-
-        return JsonResponse({"error": "blocked"}, status=403)
+        return max_run >= threshold
