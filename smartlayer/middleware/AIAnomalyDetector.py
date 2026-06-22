@@ -79,7 +79,7 @@ NEW_USER_GRACE_LIMIT = 20
 W_SUSPICIOUS_UA         = 2
 W_ELEVATED_RATE         = 3   # 20-49 req/10s
 W_MODERATE_ERROR_RATE   = 2   # 40-74% errors in 2min
-W_SENSITIVE_PATH        = 4   # hitting /.env /admin etc
+W_SENSITIVE_PATH        = 3   # hitting /.env /admin etc
 W_ENDPOINT_SCANNING     = 2   # 15+ distinct paths/min
 W_SEQUENTIAL_ID_PROBING = 5   # /users/1 /users/2 /users/3...
 W_BURST_SAME_ENDPOINT   = 2   # burst after idle, same endpoint
@@ -106,7 +106,7 @@ class AIAnomalyDetector:
     def __init__(self, get_response):
         self.get_response = get_response
         cfg = getattr(settings, 'SMART_MIDDLEWARE', {})
-        self.grey_threshold  = cfg.get('grey_suspicion_threshold', 4)
+        self.grey_threshold  = cfg.get('grey_suspicion_threshold', 5)
         self.grey_hard_block = cfg.get('grey_hard_block_score', 8)
         self.sensitive_paths = cfg.get('grey_sensitive_paths', DEFAULT_SENSITIVE_PATHS)
 
