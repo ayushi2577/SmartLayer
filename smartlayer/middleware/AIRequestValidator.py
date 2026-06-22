@@ -70,11 +70,9 @@ def normalize(body: str) -> str:
 def suspicion_score(body: str) -> int:
     body = decode_if_base64(body)
     normalized = normalize(body)   # normalize first
-    print(f"NORMALIZED: {normalized}")
     score = 0
     for pattern in SUSPICIOUS_PATTERNS:
         if re.search(pattern, normalized):        #re.search(pattern, string) looks for the pattern anywhere in the string
-            print(f"MATCHED: {pattern}")
             score += 1
     return score
 
