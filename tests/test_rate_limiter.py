@@ -1,20 +1,24 @@
 from django.test import TestCase, RequestFactory, override_settings
 from django.contrib.auth.models import User
 from smartlayer.middleware.Rate_Limiter import RateLimiter
+from django.core.cache import cache
+from smartlayer.models import UserRequestCount
 
 
 def make_response(status_code=200):
     return type('R', (), {'status_code': status_code})()
 
-
 class TestRateLimiter(TestCase):
 
     def setUp(self):
+        cache.clear()                  
         self.factory    = RequestFactory()
         self.middleware = RateLimiter(get_response=lambda r: make_response(200))
-        self.user       = User.objects.create_user(username='testuser', password='test', )
-        # add plan field to user
+        self.user       = User.objects.create_user(username='testuser', password='test')
         self.user.plan  = 'free'
+
+    def tearDown(self):
+        cache.clear()                  
 
     def _make_request(self, path='/', user=None):
         request      = self.factory.get(path)
@@ -120,3 +124,111 @@ class TestRateLimiter(TestCase):
         # user2 should still pass
         response2 = self.middleware(request2)
         self.assertEqual(response2.status_code, 200)
+
+    def test_per_hour_limit_enforced(self):
+        with override_settings(SMART_MIDDLEWARE={
+            'PLAN_FIELD': 'plan',
+            'RATE_LIMIT_PLANS': {
+                'free': {
+                    '/api/generate/': {
+                        'per_hour': 2,
+                    },
+                },
+            },
+        }):
+            middleware = RateLimiter(get_response=lambda r: make_response(200))
+            request = self._make_request(path='/api/generate/')
+            for _ in range(2):
+                response = middleware(request)
+                self.assertEqual(response.status_code, 200)
+            response = middleware(request)
+            self.assertEqual(response.status_code, 429)
+
+    def test_prefix_path_matching(self):
+        """A config entry for '/api/' should also match '/api/generate/'."""
+        with override_settings(SMART_MIDDLEWARE={
+            'PLAN_FIELD': 'plan',
+            'RATE_LIMIT_PLANS': {
+                'free': {
+                    '/api/': {
+                        'per_minute': 1,
+                    },
+                },
+            },
+        }):
+            middleware = RateLimiter(get_response=lambda r: make_response(200))
+            request = self._make_request(path='/api/generate/')
+            response = middleware(request)
+            self.assertEqual(response.status_code, 200)
+            # 2nd request should be blocked — prefix limit applies
+            response = middleware(request)
+            self.assertEqual(response.status_code, 429)
+
+    def test_lifetime_checked_before_per_day(self):
+        """lifetime block should trigger before per_day is even incremented."""
+        with override_settings(SMART_MIDDLEWARE={
+            'PLAN_FIELD': 'plan',
+            'RATE_LIMIT_PLANS': {
+                'free': {
+                    '/api/generate/': {
+                        'lifetime': 1,
+                        'per_day': 100,
+                    },
+                },
+            },
+        }):
+            middleware = RateLimiter(get_response=lambda r: make_response(200))
+            request = self._make_request(path='/api/generate/')
+            middleware(request)          # uses up lifetime=1
+            response = middleware(request)
+            self.assertEqual(response.status_code, 429)
+            self.assertIn('Lifetime', response.content.decode())
+
+    def test_was_blocked_flag_set_on_429(self):
+        """Blocked requests must have request._was_blocked = True."""
+        request = self._make_request(path='/api/generate/')
+        for _ in range(2):
+            self.middleware(request)
+        self.middleware(request)  # this is the blocked one
+        self.assertTrue(getattr(request, '_was_blocked', False))
+
+    def test_custom_plan_field(self):
+        """PLAN_FIELD setting should support non-default attribute names."""
+        self.user.subscription = 'free'
+        with override_settings(SMART_MIDDLEWARE={
+            'PLAN_FIELD': 'subscription',
+            'RATE_LIMIT_PLANS': {
+                'free': {
+                    '/api/generate/': {
+                        'per_minute': 1,
+                    },
+                },
+            },
+        }):
+            middleware = RateLimiter(get_response=lambda r: make_response(200))
+            request = self._make_request(path='/api/generate/')
+            response = middleware(request)
+            self.assertEqual(response.status_code, 200)
+            response = middleware(request)
+            self.assertEqual(response.status_code, 429)
+
+    def test_lifetime_counter_increments_in_db(self):
+        """UserRequestCount.lifetime_count should go up on each allowed request."""
+        with override_settings(SMART_MIDDLEWARE={
+            'PLAN_FIELD': 'plan',
+            'RATE_LIMIT_PLANS': {
+                'free': {
+                    '/api/generate/': {
+                        'lifetime': 10,
+                    },
+                },
+            },
+        }):
+            middleware = RateLimiter(get_response=lambda r: make_response(200))
+            request = self._make_request(path='/api/generate/')
+            for _ in range(3):
+                middleware(request)
+            record = UserRequestCount.objects.get(
+                user=self.user, path='/api/generate/', plan_field='free'
+            )
+            self.assertEqual(record.lifetime_count, 3)
