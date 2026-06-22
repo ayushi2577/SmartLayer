@@ -24,10 +24,10 @@ from django.conf import settings
 
 SUSPICIOUS_PATTERNS = [
     # SQL injection
-    r"(\bOR\b|\bAND\b)\s+\d+=\d+",          # OR 1=1, AND 2=2
-    r"(UNION\s+SELECT|DROP\s+TABLE|DELETE\s+FROM|INSERT\s+INTO|UPDATE\s+SET)",
-    r"(|;|\/\*|\*\/)\s*$",                  # SQL comments at end
-    r"'\s*(OR|AND)\s*'",                      # ' OR '
+    r"(\bor\b|\band\b)\s+\d+=\d+",          # OR 1=1, AND 2=2
+    r"(union\s+select|drop\s+table|delete\s+from|insert\s+into|update\s+set)",
+    r"(;|\/\*|\*\/)\s*$",                      # SQL comments at end
+    r"'\s*(or|and)\s*'",                      # ' OR '
 
     # Path traversal
     r"\.\./|\.\.\\",                          # ../../
@@ -70,9 +70,11 @@ def normalize(body: str) -> str:
 def suspicion_score(body: str) -> int:
     body = decode_if_base64(body)
     normalized = normalize(body)   # normalize first
+    print(f"NORMALIZED: {normalized}")
     score = 0
     for pattern in SUSPICIOUS_PATTERNS:
         if re.search(pattern, normalized):        #re.search(pattern, string) looks for the pattern anywhere in the string
+            print(f"MATCHED: {pattern}")
             score += 1
     return score
 

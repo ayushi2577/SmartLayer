@@ -153,10 +153,6 @@ class AIAnomalyDetector:
         ip = get_client_ip(request)   # replaces REMOTE_ADDR
         user_id = request.user.id if request.user.is_authenticated else None
 
-        if BannedUser.is_banned(user_id=user_id, ip_address=ip if not user_id else None):
-            request._was_blocked = True
-            return JsonResponse({"error": "blocked"}, status=403)
-        
         cfg            = getattr(settings, 'SMART_MIDDLEWARE', {})
         whitelist_ips  = cfg.get('WHITELIST_IPS', [])
         whitelist_paths = cfg.get('WHITELIST_PATHS', [])
@@ -166,6 +162,10 @@ class AIAnomalyDetector:
 
         if any(request.path.startswith(p) for p in whitelist_paths):
             return self.get_response(request)
+        
+        if BannedUser.is_banned(user_id=user_id, ip_address=ip if not user_id else None):
+            request._was_blocked = True
+            return JsonResponse({"error": "blocked"}, status=403)
         
         snapshot = {
             'user_id' : user_id,
