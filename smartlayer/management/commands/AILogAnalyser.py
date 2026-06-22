@@ -26,6 +26,8 @@ Schedule with cron (every morning at 6am):
 from django.core.management.base import BaseCommand
 from django.db.models import Avg, Count
 from django.conf import settings
+from django.utils import timezone
+from smartlayer.models import BannedUser
 from datetime import date, timedelta, datetime
 
 
@@ -39,14 +41,23 @@ class Command(BaseCommand):
         config = getattr(settings, 'SMART_MIDDLEWARE', {})
         yesterday = date.today() - timedelta(days=1)
 
-        # ──Auto cleanup old logs ──────────────────────────────
+        # --Auto cleanup old logs ------------------------------
         retention_days = config.get('LOG_RETENTION_DAYS', 7)
         cutoff = datetime.now() - timedelta(days=retention_days)
         deleted_count, _ = RequestLog.objects.filter(timestamp__lt=cutoff).delete()
         if deleted_count:
             self.stdout.write(f"[Smart Layer] Cleaned up {deleted_count} logs older than {retention_days} days")
 
-        # ── Collect yesterday's stats ──────────────────────────
+        # -- Auto cleanup expired bans -------------------------
+        deleted_bans, _ = BannedUser.objects.filter(
+            expires_at__isnull=False,
+            expires_at__lt=timezone.now()
+        ).delete()
+        if deleted_bans:
+            self.stdout.write(f"[Smart Layer] Cleaned up {deleted_bans} expired bans")
+
+
+        # -- Collect yesterday's stats --------------------------
         logs = RequestLog.objects.filter(timestamp__date=yesterday)
         total    = logs.count()
 
@@ -73,7 +84,7 @@ class Command(BaseCommand):
         slowest_text   = "\n".join([f"  {r['path']}: {r['avg_time']:.1f}ms" for r in slowest])
         top_paths_text = "\n".join([f"  {r['path']}: {r['count']} hits" for r in top_paths])
 
-        # ── Build raw summary ───────────────────────────────────
+        # -- Build raw summary -----------------------------------
         summary = f"""
             Date:              {yesterday}
             Total requests:    {total}
@@ -88,7 +99,7 @@ class Command(BaseCommand):
             {top_paths_text}
                     """.strip()
 
-        # ── Asking AI to explain it in plain English ───────────────
+        # -- Asking AI to explain it in plain English ---------------
         ai_available = bool(
             config.get('AI_API_KEY') and
             config.get('AI_BASE_URL') and
@@ -125,7 +136,7 @@ class Command(BaseCommand):
 
                     {result}
 
-                    {'─'*60}
+                    {'-'*60}
                     RAW STATS:
                     {summary}
                     {'='*60}
@@ -160,7 +171,7 @@ class Command(BaseCommand):
                 {'='*60}
             """.strip()
 
-        # ── Step 5: Save to DB ──────────────────────────────────────────
+        # -- Step 5: Save to DB ------------------------------------------
         # saves to developer's existing database
         # uses async write so this never blocks anything
         report_obj, created = DailyReport.objects.update_or_create(
@@ -171,14 +182,14 @@ class Command(BaseCommand):
         action = "Created" if created else "Updated"
         self.stdout.write(f"[Smart Layer] {action} report for {yesterday} — visible in Django admin → Daily Reports")
 
-        # ── Step 6: Print to terminal too ──────────────────────────────
+        # -- Step 6: Print to terminal too ------------------------------
         is_production = not config.get('DEBUG', True)
         if not is_production:
             self.stdout.write(final_report)
     
-    # always write a simple status line
-    # this goes to cron logs in production — short and clean
+        # always write a simple status line
+        # this goes to cron logs in production — short and clean
         self.stdout.write(
         f"[Smart Layer] Report for {yesterday} saved. "
         f"Total: {total} requests, Errors: {errors}, Blocked: {blocked}"
-    )   
+        )

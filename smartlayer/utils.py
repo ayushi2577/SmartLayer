@@ -1,3 +1,5 @@
+import ipaddress
+
 import httpx
 
 def get_client_ip(request) -> str:
@@ -21,7 +23,12 @@ def get_client_ip(request) -> str:
         if xff:
             return xff.split(',')[0].strip()
 
-    return request.META.get('REMOTE_ADDR', '')
+    ip = request.META.get('REMOTE_ADDR', '')
+    try:
+        ipaddress.ip_address(ip)  # validates it is a real IP
+        return ip
+    except ValueError:
+        return ''
 
 def call_ai(prompt: str, config: dict, max_tokens: int = 5, temperature: float = 0.0) -> str:
     """

@@ -75,7 +75,7 @@ STAGE 2 — Background thread (async, user already has their response)
 
     If no API key is set or AI call fails — middleware fails open.
     App never breaks. Only deterministic black rules still apply.
-    
+
 """
 
 import re
@@ -156,6 +156,16 @@ class AIAnomalyDetector:
         if BannedUser.is_banned(user_id=user_id, ip_address=ip if not user_id else None):
             request._was_blocked = True
             return JsonResponse({"error": "blocked"}, status=403)
+        
+        cfg            = getattr(settings, 'SMART_MIDDLEWARE', {})
+        whitelist_ips  = cfg.get('WHITELIST_IPS', [])
+        whitelist_paths = cfg.get('WHITELIST_PATHS', [])
+
+        if ip in whitelist_ips:
+            return self.get_response(request)
+
+        if any(request.path.startswith(p) for p in whitelist_paths):
+            return self.get_response(request)
         
         snapshot = {
             'user_id' : user_id,

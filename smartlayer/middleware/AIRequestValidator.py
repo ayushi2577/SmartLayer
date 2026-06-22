@@ -15,7 +15,7 @@ if no api key is provided or if AI call fails for any reason, the middleware wil
 but will still block requests with 3 or more suspicious patterns without calling AI, to catch obvious attacks even if AI is not working.
 """
 import re
-from django.http import JsonResponse
+from django.http import JsonResponse, RawPostDataException
 from urllib.parse import unquote
 import base64
 import html
@@ -26,7 +26,7 @@ SUSPICIOUS_PATTERNS = [
     # SQL injection
     r"(\bOR\b|\bAND\b)\s+\d+=\d+",          # OR 1=1, AND 2=2
     r"(UNION\s+SELECT|DROP\s+TABLE|DELETE\s+FROM|INSERT\s+INTO|UPDATE\s+SET)",
-    r"(--|;|\/\*|\*\/)\s*$",                  # SQL comments at end
+    r"(|;|\/\*|\*\/)\s*$",                  # SQL comments at end
     r"'\s*(OR|AND)\s*'",                      # ' OR '
 
     # Path traversal
@@ -122,7 +122,7 @@ class AIRequestValidator:
 
         try:
             body = request.body.decode('utf-8')
-        except (UnicodeDecodeError, Exception):
+        except (UnicodeDecodeError,RawPostDataException,Exception):
             return self.get_response(request)  # can't decode - not a text attack
         
         score = suspicion_score(body)
