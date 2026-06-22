@@ -4,45 +4,81 @@ Global level anomaly detection middleware.
 Detects anomalies in request patterns and blocks malicious requests.
 Patterns are divided into 3 categories: BLACK, GREY, WHITE.
 
-BLACK:
-    1. Empty user_agent → BLOCK (24h ban)
-    2. 50+ requests in last 10 seconds → BLOCK (1h ban)
-    3. 75%+ error rate in last 2 minutes (min 10 requests) → BLOCK (24h ban)
+---- HOW IT WORKS -------------------------------
 
-GREY:
-    Suspicion scoring system. If score >= threshold → ask AI.
-    AI receives raw behavioral data only (no score, no labels).
-    AI responds with BLOCK:1 / BLOCK:24 / BLOCK:168 / ALLOW.
-    If score >= 8 → block immediately without AI call (7 day ban).
-    If score 4-7 → let request through, ask AI async, ban on next request.
+Every request goes through two stages:
 
-WHITE:
-    Not BLACK, not GREY → let through.
+STAGE 1 — Main thread (instant, never slows the user)
+    1. Ban check — is this user/IP already banned? If yes, block 403.
+    2. Snapshot — extract user_id, ip, path, ua, is_auth from request.
+    3. Hand off to background thread and return get_response() immediately.
+    User always gets their response without waiting for any analysis.
 
-All bans are time-limited and expire automatically via BannedUser.is_banned().
-No admin action is needed to lift expired bans.
+STAGE 2 — Background thread (async, user already has their response)
+    1. One DB query — fetch last 40 minutes of logs for this user/IP.
+    2. Slice in Python — compute all time windows from that one result.
+       No more DB queries for counting.
+    3. BLACK check — hard deterministic rules, no AI needed.
+       Any hit → write ban → next request gets blocked at stage 1.
+    4. GREY check — suspicion scoring.
+       Score >= hard_block → ban immediately, no AI needed.
+       Score >= threshold  → call AI with raw behavioral facts.
+       AI says BLOCK → write ban → next request gets blocked at stage 1.
+       AI says ALLOW or AI fails → no action, user continues normally.
 
-Configuration in settings.py:
+---- BLACK RULES ---------------------------
+    1. Empty user agent              → ban 24h
+    2. 50+ requests in 10 seconds   → ban 1h
+    3. 75%+ error rate in 2 minutes → ban 24h  (min 10 requests)
+
+---- GREY SCORING -----------------------------
+
+    Signal                                          Score
+    --------------------------------------------------------------------------------
+    Suspicious user agent (curl, scrapy, wget...)   +2
+    Elevated request rate (20-49 req/10s)           +3
+    Moderate error rate (40-74% in 2min)            +2
+    Sensitive path probing (3+ hits, unauthed)      +3
+    Endpoint scanning (25+ distinct paths/min)      +2
+    Sequential ID probing (/users/1,2,3...)         +5
+    Burst after idle on same endpoint               +2
+    Unauthenticated user                            +1
+
+    Score >= 8  → ban 7 days, no AI call needed
+    Score >= 5  → ask AI, ban on BLOCK verdict
+
+---- BANS ---------------------------------------------------
+    All bans are time-limited and expire automatically.
+    No admin action needed to lift expired bans.
+    Authenticated users banned by user_id.
+    Anonymous users banned by IP.
+
+---- CONFIGURATION ---------------------------------------------
+
     SMART_MIDDLEWARE = {
-        'AI_API_KEY': 'your_ai_api_key',
+        'AI_API_KEY':  'your_api_key',
         'AI_BASE_URL': 'https://api.groq.com/openai/v1',
-        'AI_MODEL': 'llama3-8b-8192',
+        'AI_MODEL':    'llama3-8b-8192',
 
-        'grey_suspicion_threshold': 4,       # default 4
-        'grey_hard_block_score': 8,          # default 8, block without AI
+        'grey_suspicion_threshold': 5,       # default 5
+        'grey_hard_block_score':    8,        # default 8
         'grey_sensitive_paths': [            # optional, has defaults
             '/admin', '/.env', '/config',
             '/api/token', '/api/login',
         ],
     }
 
-Works with any OpenAI-compatible provider (Groq, OpenAI, Gemini, Ollama, etc.)
-via AI_BASE_URL. If no API key is provided or AI call fails,
-middleware will still run and fall back to allowing the request through.
+---- AI PROVIDERS ------------------------------
+
+    Works with any OpenAI-compatible provider:
+    Groq, OpenAI, Gemini, Ollama, etc. via AI_BASE_URL.
+
+    If no API key is set or AI call fails — middleware fails open.
+    App never breaks. Only deterministic black rules still apply.
+    
 """
 
 import re
-import threading
 from datetime import timedelta
 
 from django.conf import settings
@@ -70,10 +106,6 @@ SUSPICIOUS_UA_KEYWORDS = [
     'headlesschrome', 'phantomjs', 'scrapy', 'wget',
     'libwww', 'httpx', 'okhttp', 'aiohttp',
 ]
-
-# Minimum requests before we start scoring
-# Protects new users exploring the site
-NEW_USER_GRACE_LIMIT = 20
 
 # Score weights
 W_SUSPICIOUS_UA         = 2
@@ -286,8 +318,13 @@ class AIAnomalyDetector:
             score += W_MODERATE_ERROR_RATE
 
         # 4. Sensitive path
-        if not snapshot['is_auth'] and any(snapshot['path'].startswith(p) for p in self.sensitive_paths):
+        sensitive_hits = sum(
+            1 for p in behavior['recent_paths']
+            if any(p.startswith(s) for s in self.sensitive_paths)
+        )
+        if not snapshot['is_auth'] and sensitive_hits >= 3:
             score += W_SENSITIVE_PATH
+
 
         # 5. Endpoint scanning - 15+ distinct paths in 1 min
         if behavior['distinct_paths'] >= 25:
