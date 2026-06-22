@@ -98,7 +98,7 @@ class BannedUser(models.Model):
 
 
 class UserRequestCount(models.Model):
-    user          = models.ForeignKey('auth.User', on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     path          = models.CharField(max_length=200)
     plan_field    = models.CharField(max_length=50)         #user.plan 
     lifetime_count = models.IntegerField(default=0)

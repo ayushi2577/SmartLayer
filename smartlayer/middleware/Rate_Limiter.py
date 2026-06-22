@@ -84,37 +84,37 @@ class RateLimiter:
         per_day = path_limits.get('per_day')                # per day limit
         lifetime = path_limits.get('lifetime')              # lifetime of limit
 
-        if lifetime:
-            record, created = UserRequestCount.objects.get_or_create(user=request.user, path=request.path, plan_field=user_plan)
-            count = record.lifetime_count
-            if count >= lifetime:
+        # check fastest/cheapest limits FIRST, using atomic incr exactly as before
+        if per_minute:
+            key = f"rl:min:{request.user.id}:{user_plan}:{request.path}"
+            cache.add(key, 0, 60)
+            count = cache.incr(key)
+            if count > per_minute:
                 request._was_blocked = True
-                return JsonResponse({"error": "Lifetime rate limit exceeded"}, status=429)
-            UserRequestCount.objects.filter(pk=record.pk).update(lifetime_count=F('lifetime_count') + 1)        #to prevent race conditions -- concurrent requests causing multiple increments -- we do it in single query with F expression instead of fetching, incrementing and saving
-
-        if per_day:
-            key = f"rl:day:{request.user.id}:{user_plan}:{request.path}"
-            cache.add(key, 0, 3600 * 24)  # create if not exists
-            count = cache.incr(key)    
-            if count > per_day:
-                request._was_blocked = True
-                return JsonResponse({"error": "rate limit exceeded for today"}, status=429) 
+                return JsonResponse({"error": "too many requests per minute"}, status=429)
 
         if per_hour:
             key = f"rl:hour:{request.user.id}:{user_plan}:{request.path}"
-            cache.add(key, 0, 3600)  # create if not exists
+            cache.add(key, 0, 3600)
             count = cache.incr(key)
             if count > per_hour:
                 request._was_blocked = True
                 return JsonResponse({"error": "rate limit exceeded for this hour"}, status=429)
 
-        if per_minute:
-            key = f"rl:min:{request.user.id}:{user_plan}:{request.path}"
-            cache.add(key, 0, 60)  # create if not exists
+        if per_day:
+            key = f"rl:day:{request.user.id}:{user_plan}:{request.path}"
+            cache.add(key, 0, 86400)
             count = cache.incr(key)
-            if count > per_minute:
+            if count > per_day:
                 request._was_blocked = True
-                return JsonResponse({"error": "too many requests per minute"}, status=429)
+                return JsonResponse({"error": "rate limit exceeded for today"}, status=429)
+
+        if lifetime:
+            record, _ = UserRequestCount.objects.get_or_create(user=request.user, path=request.path, plan_field=user_plan)
+            if record.lifetime_count >= lifetime:
+                request._was_blocked = True
+                return JsonResponse({"error": "Lifetime rate limit exceeded"}, status=429)
+            UserRequestCount.objects.filter(pk=record.pk).update(lifetime_count=F('lifetime_count') + 1)
             
         response=self.get_response(request)
         return response
