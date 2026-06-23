@@ -7,7 +7,7 @@ All notable changes to django-smart-layer will be documented here.
 ## [0.1.3] — 2026-06-23
 
 ### Added
-- Anonymous user rate limiting via `RATE_LIMIT_PLANS['anonymous']` —
+- Anonymous user rate limiting via `RATE_LIMIT_PLANS['anonymous']`  —
   developers can now define per-path limits for unauthenticated requests,
   tracked by IP address
 - Full test suite added across all middleware components — previously
