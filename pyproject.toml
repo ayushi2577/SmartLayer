@@ -1,6 +1,6 @@
 [project]
 name = "django-smart-layer"
-version = "0.1.1"
+version = "0.1.2"
 description = "AI-powered Django middleware for security, monitoring and rate limiting"
 requires-python = ">=3.10"
 readme = "README.md"

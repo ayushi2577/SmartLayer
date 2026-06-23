@@ -147,7 +147,7 @@ python manage.py migrate
 - ✅ `analyse_logs` — plain-English daily report delivered to Django admin, auto-scheduled
 - ✅ Whitelisted IPs and paths skip anomaly detection entirely
 - ✅ Proxy-aware real IP extraction for deployments behind Nginx, ALB, or Cloudflare
-- ✅ Verbose terminal output for `analyse_logs` in non-production environments (`DEBUG: True`)
+- ✅ Verbose terminal output for `analyse_logs` in non-production environments (`VERBOSE_REPORT: True`)
 
 ```python
 # settings.py — Maximum setup
@@ -202,10 +202,10 @@ SMART_MIDDLEWARE = {
     # ── Log Analysis ─────────────────────────────────────────────────────────
     # LOG_RETENTION_DAYS default: 7. Logs older than this are deleted on each run.
     # ANALYSE_LOGS_AT: remove this key entirely if you prefer cron (recommended in production).
-    # DEBUG: if True, the full report is also printed to terminal (default: True).
-    'LOG_RETENTION_DAYS': 30,
+    # VERBOSE_REPORT: if True, the full report is also printed to terminal (default: True).
+    'LOG_RETENTION_DAYS': 7,
     'ANALYSE_LOGS_AT': '06:00',
-    'DEBUG': False,                    # set True in dev to see report output in terminal
+    'VERBOSE_REPORT': False,                    # set True in dev to see report output in terminal
 
     # ── AIAnomalyDetector — scoring tuning ───────────────────────────────────
     # grey_suspicion_threshold: score at which AI is consulted (default: 5)
@@ -564,7 +564,7 @@ Smart Layer uses any **OpenAI-compatible** API endpoint. Set `AI_BASE_URL` to th
 | `RATE_LIMIT_PLANS` | For `RateLimiter` | `{}` | `RateLimiter` |
 | `LOG_RETENTION_DAYS` | No | `7` | `analyse_logs` |
 | `ANALYSE_LOGS_AT` | No | — (disabled) | `analyse_logs` auto-scheduler |
-| `DEBUG` | No | `True` | `analyse_logs` terminal output |
+| `VERBOSE_REPORT` | No | `True` | `analyse_logs` terminal output |
 | `grey_suspicion_threshold` | No | `5` | `AIAnomalyDetector` |
 | `grey_hard_block_score` | No | `8` | `AIAnomalyDetector` |
 | `grey_sensitive_paths` | No | Built-in list | `AIAnomalyDetector` |

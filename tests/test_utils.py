@@ -1,5 +1,5 @@
 from django.test import TestCase
-from smartlayer.middleware.AIRequestValidator import suspicion_score
+from smartlayer.middleware.ai_request_validator import suspicion_score
 
 
 class TestSuspicionScore(TestCase):

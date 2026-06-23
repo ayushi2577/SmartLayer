@@ -1,6 +1,6 @@
 from django.test import TestCase, RequestFactory, override_settings
 from django.contrib.auth.models import User
-from smartlayer.middleware.Rate_Limiter import RateLimiter
+from smartlayer.middleware.rate_limiter import RateLimiter
 from django.core.cache import cache
 from smartlayer.models import UserRequestCount
 

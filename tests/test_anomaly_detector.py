@@ -2,7 +2,7 @@ from django.test import TestCase, RequestFactory
 from django.utils import timezone
 from datetime import timedelta
 from django.contrib.auth.models import AnonymousUser, User
-from smartlayer.middleware.AIAnomalyDetector import AIAnomalyDetector
+from smartlayer.middleware.ai_anomaly_detector import AIAnomalyDetector
 from smartlayer.models import BannedUser, RequestLog
 
 

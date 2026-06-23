@@ -1,6 +1,6 @@
 from django.test import TestCase, RequestFactory
 from django.contrib.auth.models import AnonymousUser, User
-from smartlayer.middleware.WatchLog import WatchLog
+from smartlayer.middleware.watch_log import WatchLog
 from smartlayer.models import RequestLog
 
 

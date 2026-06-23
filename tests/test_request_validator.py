@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.test import TestCase, RequestFactory, override_settings
 
-from smartlayer.middleware.AIRequestValidator import AIRequestValidator
+from smartlayer.middleware.ai_request_validator import AIRequestValidator
 
 
 # ======================================================================
@@ -27,7 +27,7 @@ class TestNoAICallNeeded(TestCase):
         self.factory    = RequestFactory()
         self.middleware = make_middleware()
 
-    @patch('smartlayer.middleware.AIRequestValidator.ask_ai_score')
+    @patch('smartlayer.middleware.ai_request_validator.call_ai')
     def test_clean_body_passes_through_without_calling_ai(self, mock_ai):
         request  = make_post_request(self.factory, body=b'{"name": "John", "email": "john@example.com"}')
         response = self.middleware(request)
