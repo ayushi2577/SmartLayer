@@ -575,7 +575,7 @@ With `TRUST_PROXY` enabled, SmartLayer checks headers in this order:
 
 ## Tests
 
-SmartLayer ships with a comprehensive pytest test suite — **1,362 lines** across six test files covering every component:
+SmartLayer ships with a comprehensive pytest test suite — **124 test passed** across six test files covering every component:
 
 ```
 tests/
@@ -626,7 +626,6 @@ The CI pipeline runs the full test suite on every push via GitHub Actions (`.git
 | Limitation | Recommended Workaround |
 |---|---|
 | Coordinated attacks from many distinct IPs | Place Cloudflare or AWS WAF in front of Django |
-| Slow drip attacks (1 request/hour over days) | Appear in daily `analyse_logs` reports for manual review |
 | AI backend unavailable | All AI-dependent middleware fails open — app continues normally |
 | Cache reset on server restart | Use Redis cache backend for persistent time-based rate limiting |
 | `WatchLog` background thread is best-effort | In rare crash scenarios, a request may not be logged — not suitable as a compliance audit log |
@@ -638,13 +637,6 @@ The CI pipeline runs the full test suite on every push via GitHub Actions (`.git
 - [ ] Usage dashboard at `/smart-layer/dashboard/`
 - [ ] Email delivery for daily `analyse_logs` reports
 - [ ] Webhook support for ban events
-- [ ] Per-IP rate limiting (in addition to per-user)
-
----
-
-## License
-
-MIT — free to use, modify, and distribute.
 
 ---
 
