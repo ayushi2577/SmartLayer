@@ -1,70 +1,94 @@
-# 🛡️ django-smart-layer
+# django-smart-layer
 
-> **AI-powered middleware for Django** — security, rate limiting, anomaly detection, and log analysis.
-> Drop it in. Configure once. Forget about it.
+> **AI-powered security middleware for Django** — bot detection, request validation, subscription-aware rate limiting, and intelligent log analysis. Drop-in. Zero infrastructure.
 
----
-
-## Why django-smart-layer?
-
-Every Django app eventually needs the same things:
-
-- 🔒 Block malicious requests before they touch your views
-- 🤖 Detect bots and scrapers automatically
-- 💳 Enforce subscription plan limits without writing boilerplate
-- 📋 Understand what happened in your app — in plain English
-
-**Smart Layer gives you all of this in one pip install.**
-
-No external services. No accounts. No infrastructure.
-Just add it to `MIDDLEWARE` and you're protected.
+[![PyPI version](https://img.shields.io/pypi/v/django-smart-layer.svg)](https://pypi.org/project/django-smart-layer/)
+[![Python](https://img.shields.io/pypi/pyversions/django-smart-layer.svg)](https://pypi.org/project/django-smart-layer/)
+[![Django](https://img.shields.io/badge/django-4.2%2B-green.svg)](https://www.djangoproject.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## What's Inside
+## Table of Contents
 
-| Middleware | Job | AI? |
-|---|---|---|
-| `AIAnomalyDetector` | Detects bots and attack patterns | ✅ |
-| `AIRequestValidator` | Blocks SQL injection, XSS, prompt injection | ✅ |
-| `RateLimiter` | Enforces per-plan, per-path request limits | ❌ |
-| `WatchLog` | Logs every request to your database | ❌ |
-| `analyse_logs` | Morning report — plain English summary | ✅ |
+- [Overview](#overview)
+- [How It Works](#how-it-works)
+- [Quick Start](#quick-start)
+- [Middleware Reference](#middleware-reference)
+  - [AIAnomalyDetector](#-aianomaly-detector)
+  - [AIRequestValidator](#-airequestvalidator)
+  - [RateLimiter](#-ratelimiter)
+  - [WatchLog](#-watchlog)
+  - [analyse\_logs](#-analyse_logs-management-command)
+- [AI Provider Setup](#ai-provider-setup)
+- [Full Settings Reference](#full-settings-reference)
+- [Data Models](#data-models)
+- [Proxy & IP Detection](#proxy--ip-detection)
+- [Requirements](#requirements)
+- [Known Limitations](#known-limitations)
+- [Roadmap](#roadmap)
+- [License](#license)
 
 ---
 
-## How It All Fits Together
+## Overview
+
+Every Django application eventually needs the same security layer:
+
+- Block malicious requests before they reach your views
+- Detect and ban bots, scrapers, and attack patterns automatically
+- Enforce per-plan API limits without writing boilerplate
+- Understand what happened in your app — in plain English, every morning
+
+**Smart Layer gives you all of this in one `pip install`.**
+
+No external services. No vendor lock-in. No infrastructure to manage.  
+Works with any OpenAI-compatible AI provider — including fully local models via Ollama.
+
+---
+
+## How It Works
+
+Every incoming request passes through a layered pipeline before touching your views:
 
 ```
 Incoming Request
-        │
-        ▼
-┌───────────────────────┐
-│   AIAnomalyDetector   │  Is this user a bot? Suspicious pattern?
-└───────────┬───────────┘  Blocked → 403
-            │
-            ▼
-┌───────────────────────┐
-│   AIRequestValidator  │  Is this payload malicious?
-└───────────┬───────────┘  Blocked → 403
-            │
-            ▼
-┌───────────────────────┐
-│      RateLimiter      │  Is this user over their plan limit?
-└───────────┬───────────┘  Blocked → 429
-            │
-            ▼
-┌───────────────────────┐
-│       WatchLog        │  Log everything — always runs
-└───────────┬───────────┘
-            │
-            ▼
+       │
+       ▼
+┌──────────────────────────┐
+│   AIAnomalyDetector      │  Bot? Attack pattern? → 403
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│   AIRequestValidator     │  Malicious payload? → 403
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│   RateLimiter            │  Over plan quota? → 429
+└──────────┬───────────────┘
+           │
+           ▼
+┌──────────────────────────┐
+│   WatchLog               │  Logs everything (always runs)
+└──────────┬───────────────┘
+           │
+           ▼
     Your Django View ✅
-    Only clean requests reach here.
+    Only clean, authorised requests get here.
 
-Every morning →  python manage.py analyse_logs
-                 Plain English report saved to Django admin
+Every morning:  python manage.py analyse_logs
+                → Plain English report in Django admin
 ```
+
+| Middleware | Responsibility | Requires AI |
+|---|---|:---:|
+| `AIAnomalyDetector` | Behavioural bot and attack-pattern detection | ✅ |
+| `AIRequestValidator` | SQL injection, XSS, prompt injection blocking | ✅ |
+| `RateLimiter` | Per-plan, per-path request quotas | ❌ |
+| `WatchLog` | Persistent request logging to database | ❌ |
+| `analyse_logs` | Daily plain-English log summary | ✅ |
 
 ---
 
@@ -76,27 +100,32 @@ Every morning →  python manage.py analyse_logs
 pip install django-smart-layer
 ```
 
-With auto-scheduling support:
+With auto-scheduling for daily log analysis:
+
 ```bash
 pip install django-smart-layer[scheduler]
 ```
 
-### 2. Add to settings
+### 2. Add to `INSTALLED_APPS` and `MIDDLEWARE`
 
 ```python
+# settings.py
+
 INSTALLED_APPS = [
     ...
     'smartlayer',
 ]
 
 MIDDLEWARE = [
-    'smartlayer.middleware.AIAnomalyDetector',    # 1st — bot detection
+    'smartlayer.middleware.AIAnomalyDetector',    # 1st — bot/attack detection
     'smartlayer.middleware.AIRequestValidator',    # 2nd — payload validation
-    'smartlayer.middleware.RateLimiter',           # 3rd — rate limiting
-    'smartlayer.middleware.WatchLog',              # 4th — logging (always last)
+    'smartlayer.middleware.RateLimiter',           # 3rd — subscription rate limiting
+    'smartlayer.middleware.WatchLog',              # 4th — request logging (always last)
     ...
 ]
 ```
+
+> **Order matters.** The pipeline above is the correct, tested sequence.
 
 ### 3. Run migrations
 
@@ -104,22 +133,20 @@ MIDDLEWARE = [
 python manage.py migrate
 ```
 
-### 4. Configure
+### 4. Add configuration to `settings.py`
 
 ```python
 SMART_MIDDLEWARE = {
-
-    # ── AI Backend ──────────────────────────────────────────────────────
+    # AI backend — required for AIAnomalyDetector, AIRequestValidator, analyse_logs
     'AI_API_KEY':  'your-api-key',
-    'AI_BASE_URL': 'https://api.groq.com/openai/v1',
+    'AI_BASE_URL': 'https://api.groq.com/openai/v1',   # see AI Provider Setup
     'AI_MODEL':    'llama3-8b-8192',
 
-    # ── Rate Limiter ─────────────────────────────────────────────────────
-    'PLAN_FIELD': 'plan',       # field name on your User model — e.g. user.plan
-
+    # RateLimiter — map plan names to per-path limits
+    'PLAN_FIELD': 'plan',   # attribute name on your User model (e.g. request.user.plan)
     'RATE_LIMIT_PLANS': {
         'free': {
-            '/api/generate/': {'per_minute': 2,  'per_day': 50},
+            '/api/generate/': {'per_minute': 2, 'per_day': 50},
         },
         'basic': {
             '/api/generate/': {'per_minute': 10, 'per_day': 500},
@@ -132,78 +159,163 @@ SMART_MIDDLEWARE = {
         },
     },
 
-    # ── Log Analysis ─────────────────────────────────────────────────────
-    'LOG_RETENTION_DAYS': 30,       # auto delete logs older than 30 days
-    'ANALYSE_LOGS_AT': '06:00',     # auto run report daily at 6am (needs apscheduler)
+    # Log analysis
+    'LOG_RETENTION_DAYS': 30,    # delete logs older than N days automatically
+    'ANALYSE_LOGS_AT': '06:00',  # run daily report at this time (requires apscheduler)
 }
 ```
 
-That's it. Your app is protected. ✅
+Your app is now protected. ✅
 
 ---
 
-## Middleware — In Detail
+## Middleware Reference
 
 ---
 
 ### 🤖 AIAnomalyDetector
 
-Watches request patterns and blocks bots before they can do damage.
+Watches per-user request behaviour and bans bots, scrapers, and attack patterns — without adding latency to your responses.
 
-**Three instant block rules:**
+**Architecture: two-stage, non-blocking**
 
-```
-1. Empty user agent              → block immediately
-2. 50+ requests in 10 seconds   → block immediately
-3. 75%+ errors in last 2 minutes → block immediately
-```
+The middleware operates in two completely separate stages:
 
-**Suspicion scoring for subtle attacks:**
+**Stage 1 — Main thread (instant)**
 
-| Signal | Score |
+1. Ban check — is this user or IP already banned? → `403` immediately
+2. Snapshot the request metadata (user ID, IP, path, user agent)
+3. Pass the request to `get_response()` and return to the user
+4. Hand snapshot off to a background thread — user never waits
+
+**Stage 2 — Background thread (after response is sent)**
+
+1. One DB query: fetch the last 40 minutes of logs for this user/IP
+2. All time-window calculations done in Python — no further DB queries
+3. BLACK rules evaluated first (deterministic, no AI needed)
+4. GREY scoring evaluated if BLACK rules don't trigger
+5. AI consulted only for ambiguous grey-zone cases
+
+**BLACK rules — instant ban, no AI needed**
+
+| Rule | Threshold | Ban Duration |
+|---|---|---|
+| Empty user agent | Any request | 24 hours |
+| Burst rate | 50+ requests in 10 seconds | 1 hour |
+| Error flood | 75%+ error rate in 2 minutes (min 10 requests) | 24 hours |
+
+**GREY scoring — suspicion accumulation**
+
+| Behavioural Signal | Score |
 |---|---|
-| Suspicious user agent (curl, scrapy, wget...) | +2 |
-| Elevated request rate (20–49 in 10s) | +3 |
-| Moderate error rate (40–74%) | +2 |
-| Hitting sensitive paths (/admin, /.env) | +4 |
-| Scanning 15+ distinct endpoints per minute | +2 |
-| Sequential ID probing (/users/1, /users/2...) | +5 |
-| Burst after long idle on same endpoint | +2 |
+| Suspicious user agent (`curl`, `scrapy`, `wget`, etc.) | +2 |
+| Elevated rate (20–49 requests in 10 seconds) | +3 |
+| Moderate error rate (40–74% in 2 minutes) | +2 |
+| Probing sensitive paths while unauthenticated (3+ hits) | +3 |
+| Endpoint scanning (25+ distinct paths per minute) | +2 |
+| Sequential ID probing (`/users/1`, `/users/2`, `/users/3`…) | +5 |
+| Burst after idle period on same endpoint | +2 |
+| Unauthenticated user | +1 |
 
-Score ≥ 8 → blocked immediately.
-Score 4–7 → AI asked in background. Banned on next request if AI says BLOCK.
+- Score **≥ 8** → banned immediately for 7 days, no AI call
+- Score **≥ 5** → AI consulted; banned on `BLOCK` verdict
+- Score **< 5** → allowed, no action
 
-> ⚡ New users get a **grace period** — first 20 requests are never scored.
-> Legitimate users exploring your app are never penalised.
+**AI ban verdicts**
+
+When the AI is consulted, it assigns a time-proportionate ban:
+
+```
+BLOCK:1    — 1 hour   (minor violation, rate-limit abuse)
+BLOCK:24   — 24 hours (suspicious pattern, likely bot)
+BLOCK:168  — 7 days   (clear attack, scanner, or malicious probe)
+```
+
+**Grace period**
+
+New users are never penalised for the first 20 requests. Legitimate users exploring your app won't be mis-classified during initial exploration.
+
+**Fail-open behaviour**
+
+If no AI key is configured or the AI call fails for any reason, the middleware continues serving requests normally. Only deterministic BLACK rules still apply. Your application never breaks due to AI unavailability.
 
 **Returns:** `403 Forbidden`
+
+**Whitelisting IPs and paths:**
+
+Certain IPs (internal services, monitoring agents, CI runners) and paths (health checks, webhooks) should bypass all anomaly analysis entirely. Both are checked at the very start of every request — before ban checks, before scoring, before any background work.
+
+```python
+SMART_MIDDLEWARE = {
+    ...
+    'WHITELIST_IPS': [
+        '10.0.0.5',        # internal service
+        '192.168.1.100',   # CI runner
+    ],
+    'WHITELIST_PATHS': [
+        '/health/',        # load balancer health check
+        '/webhooks/',      # third-party webhook endpoint
+    ],
+}
+```
+
+`WHITELIST_PATHS` uses prefix matching — `/webhooks/` matches `/webhooks/stripe/`, `/webhooks/github/`, etc.
+
+> **Note:** Whitelisted IPs and paths skip `AIAnomalyDetector` only. `RateLimiter`, `WatchLog`, and `AIRequestValidator` still run normally for these requests.
+
+**Optional scoring tuning:**
+
+```python
+SMART_MIDDLEWARE = {
+    ...
+    'grey_suspicion_threshold': 5,    # default: 5 — score to trigger AI consult
+    'grey_hard_block_score':    8,    # default: 8 — score to ban without AI
+    'grey_sensitive_paths': [         # paths that raise the sensitive-path signal
+        '/admin', '/.env', '/config', '/api/token', '/api/login',
+    ],
+}
+```
 
 ---
 
 ### 🛡️ AIRequestValidator
 
-Scans every request body for attacks before they reach your views.
+Scans every request body for known attack patterns before the payload reaches your views. Uses a two-stage approach to minimise AI calls and maximise performance.
 
-**Stage 1 — Pattern matching (instant, free)**
+**Stage 1 — Pattern matching (instant, no AI)**
 
-Detects SQL injection, XSS, path traversal, shell injection,
-prompt injection, null bytes, and encoding tricks.
+Detects the following attack categories via regex and heuristics:
+
+- SQL injection (`UNION SELECT`, `OR 1=1`, `DROP TABLE`, comment injection)
+- Cross-Site Scripting (XSS) — `<script>`, `javascript:`, event handlers
+- Path traversal (`../`, encoded variants)
+- Shell injection (backticks, `&&`, `||`, pipe chains)
+- Prompt injection (attempts to override AI instructions in user input)
+- Null byte injection
+- Base64 and URL-encoded payload obfuscation
+
+Scoring:
 
 ```
-Score 0   → safe, no AI call needed
-Score 1–2 → borderline, sent to AI
-Score 3+  → obviously malicious, blocked immediately
+Score 0     → safe — no AI call, request passes through
+Score 1–2   → borderline — sent to AI for confidence scoring
+Score 3+    → obviously malicious — blocked immediately, no AI call
 ```
 
-**Stage 2 — AI analysis (only for borderline requests)**
+**Stage 2 — AI confidence scoring (borderline requests only)**
 
-Catches clever attacks that bypass regex:
-encoded attacks, split-field attacks, business logic abuse,
-social engineering, and obfuscated payloads.
+The AI analyses the full request body for attacks that bypass pattern matching:
 
-Confidence > 85% → blocked.
+- Encoded and split-field attacks
+- Business logic abuse
+- Social engineering payloads
+- Obfuscated injection attempts
 
-> 💡 File uploads (multipart) are skipped automatically.
+**Confidence ≥ 85%** → request blocked.
+
+> **File uploads are excluded automatically.** `multipart/form-data` requests are not validated to avoid false positives on binary content.
+
+**Fail-open behaviour:** If AI is unavailable, borderline requests (score 1–2) pass through. Requests scoring 3+ are still blocked by pattern matching alone.
 
 **Returns:** `403 Forbidden`
 
@@ -211,9 +323,9 @@ Confidence > 85% → blocked.
 
 ### ⏱️ RateLimiter
 
-Enforces per-user, per-plan, per-path limits. Built for SaaS.
+Enforces per-user, per-plan, per-path request quotas. Designed for SaaS products with subscription tiers.
 
-**Supports four limit types — use any combination:**
+**Four independent limit types — use any combination:**
 
 ```python
 'RATE_LIMIT_PLANS': {
@@ -222,109 +334,118 @@ Enforces per-user, per-plan, per-path limits. Built for SaaS.
             'per_minute': 2,
             'per_hour':   20,
             'per_day':    100,
-            'lifetime':   1000,   # never resets
+            'lifetime':   1000,   # never resets — total requests ever
         },
     },
 }
 ```
 
 **Key behaviours:**
-- Routes only in `premium` automatically return `403` for lower plan users
-- Each plan gets **independent counters** — upgrading starts fresh
-- Cache-based counting — zero extra DB load for time-based limits
-- Lifetime limits use atomic DB increments — race condition safe
 
-**Returns:** `429 Too Many Requests`
+- **Plan isolation** — paths defined only in `premium` return `403` for lower-plan users, enforcing feature gating cleanly
+- **Independent counters** — upgrading a user's plan starts fresh counters; no carry-over
+- **Cache-based counting** — `per_minute`, `per_hour`, and `per_day` use atomic cache `incr`. Zero extra DB queries for time-based limits
+- **Atomic lifetime counting** — uses `UPDATE ... SET lifetime_count = lifetime_count + 1` with `F()` expressions; race-condition safe under concurrent load
+- **Prefix matching** — `/api/` as a limit key matches `/api/generate/`, `/api/export/`, etc. Longest prefix wins
+- **Anonymous users** — skipped entirely; only authenticated users are rate-limited
+
+**Returns:** `429 Too Many Requests` with a plain JSON error body describing which limit was exceeded.
+
+**Cache recommendation:** Use Redis as your Django cache backend. The default in-memory cache resets counters on every server restart. Smart Layer emits a Django system check warning (`smartlayer.W001`) if it detects in-memory cache is in use.
 
 ---
 
 ### 📝 WatchLog
 
-Silently records every request to the database. Zero configuration needed.
+Records every request to the `RequestLog` database table. Zero configuration. No performance impact.
 
-Writes happen in a **background thread** — response returns instantly,
-database write happens after. Zero performance impact.
+All database writes happen in a **background thread** — your view's response is returned to the client immediately. Logging is never in the critical path.
 
-**What gets saved:**
+**Fields recorded per request:**
 
-| Field | Example |
-|---|---|
-| `method` | `GET` |
-| `path` | `/api/generate/` |
-| `status_code` | `200` |
-| `response_time_ms` | `143.2` |
-| `timestamp` | `2024-01-15 14:32:01` |
-| `user_id` | `42` (authenticated users) |
-| `ip_address` | `192.168.1.1` (anonymous only) |
-| `was_blocked` | `True / False` |
+| Field | Example | Notes |
+|---|---|---|
+| `method` | `GET` | HTTP method |
+| `path` | `/api/generate/` | Request path |
+| `status_code` | `200` | Response status |
+| `response_time_ms` | `143.2` | End-to-end latency in ms |
+| `timestamp` | `2024-01-15 14:32:01` | UTC |
+| `user_id` | `42` | Set for authenticated users |
+| `ip_address` | `192.168.1.1` | Set for anonymous users only |
+| `was_blocked` | `True` | Set by upstream middleware if blocked |
+
+`WatchLog` reads the `request._was_blocked` flag set by `RateLimiter`. Place `WatchLog` last in `MIDDLEWARE` to capture the correct blocked status from all upstream layers.
 
 ---
 
-### 📊 analyse_logs
+### 📊 `analyse_logs` Management Command
 
-Reads yesterday's logs and writes a plain English report using AI.
+Reads the previous day's request logs and writes a plain-English report using AI. Report is saved to Django admin under **Daily Reports** and accessible without any extra tooling.
 
 ```bash
 python manage.py analyse_logs
 ```
 
-**What it covers:**
-- Overall API health assessment
-- Error rate and what it means
-- Slowest endpoints and likely causes
-- Suspicious activity worth investigating
-- 2–3 clear actionable recommendations
+**Report covers:**
 
-**Report saved to Django admin → Daily Reports. Always accessible.**
+- Overall API health assessment with error rate interpretation
+- Slowest endpoints and likely root causes
+- Suspicious activity patterns worth investigating
+- 2–3 concrete, actionable recommendations
 
-**Auto cleanup:** Logs older than `LOG_RETENTION_DAYS` deleted automatically.
-Your database never grows out of control.
+**Auto-cleanup:** Logs older than `LOG_RETENTION_DAYS` are deleted automatically on each run. Your database never grows unbounded.
 
-**Auto schedule (requires apscheduler):**
+**Scheduling options:**
+
+**Option A — APScheduler (in-process)**
 
 ```python
+pip install django-smart-layer[scheduler]
+
 SMART_MIDDLEWARE = {
     ...
-    'ANALYSE_LOGS_AT': '06:00',   # runs every day at 6am automatically
+    'ANALYSE_LOGS_AT': '06:00',   # runs daily at 6:00 AM server time
 }
 ```
 
-**Or use cron:**
+**Option B — Cron (recommended for production)**
 
 ```bash
 0 6 * * * /path/to/venv/bin/python /path/to/manage.py analyse_logs
 ```
 
+Cron is preferred in production for reliability, restartability, and visibility in system-level monitoring.
+
 ---
 
-## AI Providers
+## AI Provider Setup
 
-Works with any OpenAI-compatible provider:
+Smart Layer uses any **OpenAI-compatible** API endpoint. Set `AI_BASE_URL` to the provider of your choice:
 
 | Provider | `AI_BASE_URL` | Notes |
 |---|---|---|
-| **Groq** | `https://api.groq.com/openai/v1` | Fast, generous free tier — recommended |
-| **OpenAI** | `https://api.openai.com/v1` | Most capable |
-| **Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | Google free tier |
-| **Ollama** | `http://localhost:11434/v1` | Fully local, completely free |
+| **Groq** | `https://api.groq.com/openai/v1` | Recommended — fast inference, generous free tier |
+| **OpenAI** | `https://api.openai.com/v1` | Most capable models |
+| **Google Gemini** | `https://generativelanguage.googleapis.com/v1beta/openai` | Free tier available |
+| **Ollama** | `http://localhost:11434/v1` | Fully local — no data leaves your server, free |
 
-> 💡 `RateLimiter` and `WatchLog` need zero AI configuration.
-> Only `AIAnomalyDetector`, `AIRequestValidator`, and `analyse_logs` need a key.
+> **`RateLimiter` and `WatchLog` never make AI calls.** Only `AIAnomalyDetector`, `AIRequestValidator`, and `analyse_logs` require a key. You can run the non-AI middleware without any `AI_*` configuration.
 
 ---
 
-## Complete Settings Reference
+## Full Settings Reference
 
 ```python
 SMART_MIDDLEWARE = {
 
-    # AI — required for AI middlewares and analyse_logs
+    # ── AI Backend ───────────────────────────────────────────────────────────
+    # Required for: AIAnomalyDetector, AIRequestValidator, analyse_logs
     'AI_API_KEY':  'your-key',
     'AI_BASE_URL': 'https://api.groq.com/openai/v1',
     'AI_MODEL':    'llama3-8b-8192',
 
-    # RateLimiter
-    'PLAN_FIELD': 'plan',           # field name on User model
+    # ── RateLimiter ──────────────────────────────────────────────────────────
+    'PLAN_FIELD': 'plan',               # attribute on request.user (e.g. user.plan)
     'RATE_LIMIT_PLANS': {
         'free': {
             '/api/generate/': {
@@ -342,47 +463,109 @@ SMART_MIDDLEWARE = {
         },
     },
 
-    # analyse_logs
-    'LOG_RETENTION_DAYS': 30,       # default: 30
-    'ANALYSE_LOGS_AT': '06:00',     # remove to use cron instead
+    # ── Log Analysis ─────────────────────────────────────────────────────────
+    'LOG_RETENTION_DAYS': 30,          # default: 30 days
+    'ANALYSE_LOGS_AT': '06:00',        # remove key to use cron instead
 
-    # AIAnomalyDetector — optional tuning
-    'grey_suspicion_threshold': 4,
-    'grey_hard_block_score':    8,
+    # ── AIAnomalyDetector — optional tuning ──────────────────────────────────
+    'grey_suspicion_threshold': 5,     # minimum score to consult AI (default: 5)
+    'grey_hard_block_score':    8,     # score to ban without AI (default: 8)
     'grey_sensitive_paths': [
-        '/admin', '/.env', '/api/token',
+        '/admin', '/.env', '/config', '/api/token', '/api/login',
     ],
+
+    # IPs and path prefixes that bypass AIAnomalyDetector entirely
+    'WHITELIST_IPS': [
+        '10.0.0.5',
+        '192.168.1.100',
+    ],
+    'WHITELIST_PATHS': [
+        '/health/',
+        '/webhooks/',
+    ],
+
+    # ── Proxy / IP Detection ─────────────────────────────────────────────────
+    'TRUST_PROXY': False,              # set True only when behind Nginx, ALB, or Cloudflare
 }
 ```
 
 ---
 
+## Data Models
+
+Smart Layer creates four database tables via migrations.
+
+**`RequestLog`**  
+Every request recorded by `WatchLog`. Indexed on `(user_id, timestamp)` for fast anomaly-detection queries, and on `timestamp` alone for log analysis and cleanup.
+
+**`BannedUser`**  
+Users and IPs banned by `AIAnomalyDetector`. Bans are time-limited and expire automatically — no admin action required. Unique constraints prevent duplicate ban rows. Authenticated users are banned by `user_id`; anonymous users by IP.
+
+**`UserRequestCount`**  
+Lifetime request counters for `RateLimiter`. One row per `(user, path, plan)` combination. Updated via atomic `F()` expressions to handle concurrent requests safely.
+
+**`DailyReport`**  
+Plain-text reports written by `analyse_logs`. One row per day, ordered newest-first. Accessible via Django admin under **Daily Reports**.
+
+---
+
+## Proxy & IP Detection
+
+By default, `REMOTE_ADDR` is used as the client IP. This is safe for direct-to-Django deployments.
+
+If your Django app sits behind Nginx, AWS ALB, or Cloudflare, set `TRUST_PROXY: True` to extract the real client IP:
+
+```python
+SMART_MIDDLEWARE = {
+    ...
+    'TRUST_PROXY': True,
+}
+```
+
+With `TRUST_PROXY` enabled, Smart Layer checks headers in this priority order:
+
+1. `CF-Connecting-IP` (Cloudflare — single trusted value, no spoofing risk)
+2. `X-Forwarded-For` leftmost value (Nginx / ALB)
+3. `REMOTE_ADDR` as fallback
+
+> **Security warning:** Never enable `TRUST_PROXY` if Django is directly internet-facing. Clients can forge `X-Forwarded-For` headers, bypassing IP-based bans entirely.
+
+---
+
 ## Requirements
 
-- Python 3.10+
-- Django 4.2+
-- `httpx` — installed automatically
-- `apscheduler` — optional, only for `ANALYSE_LOGS_AT`
+| Dependency | Version | Notes |
+|---|---|---|
+| Python | 3.10+ | |
+| Django | 4.2+ | |
+| httpx | 0.27+ | Installed automatically |
+| apscheduler | 3.10+ | Optional — only for `ANALYSE_LOGS_AT` |
+
+**Recommended (not required):**
+
+- Redis as Django cache backend — for persistent rate-limit counters across server restarts
 
 ---
 
 ## Known Limitations
 
-| Limitation | Workaround |
+| Limitation | Recommended Workaround |
 |---|---|
-| Coordinated attacks from many IPs | Use Cloudflare or AWS WAF in front |
-| Slow drip attacks (1 req/hour over days) | Will appear in `analyse_logs` report |
-| AI backend unreachable | All middleware fails open — app never breaks |
-| Cache resets on server restart | Use Redis cache for persistent rate limiting |
+| Coordinated attacks from many distinct IPs | Place Cloudflare or AWS WAF in front of Django |
+| Slow drip attacks (1 request/hour over days) | These appear in daily `analyse_logs` reports for manual review |
+| AI backend unavailable | All AI-dependent middleware fails open — app continues serving requests normally |
+| Cache reset on server restart | Use Redis cache backend for persistent time-based rate limiting |
+| `WatchLog` background thread is best-effort | In rare crash scenarios, a request may not be logged; not suitable as an audit log for compliance |
 
 ---
 
 ## Roadmap
 
-- [ ] Usage dashboard at `/smart-layer/usage/`
-- [ ] Grey-zone AI analysis in `AIAnomalyDetector`
-- [ ] Email delivery for daily reports
-- [ ] Test suite
+- [ ] Usage dashboard at `/smart-layer/dashboard/`
+- [ ] Email delivery for daily `analyse_logs` reports
+- [ ] Webhook support for ban events
+- [ ] Per-IP rate limiting (in addition to per-user)
+- [ ] Extended test coverage
 
 ---
 
@@ -392,4 +575,4 @@ MIT — free to use, modify, and distribute.
 
 ---
 
-*Built for Django developers who want real protection without the complexity.*
+*Built for Django developers who want real, layered protection without the operational complexity.*
