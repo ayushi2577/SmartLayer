@@ -243,25 +243,7 @@ If no AI key is configured or the AI call fails for any reason, the middleware c
 
 **Whitelisting IPs and paths:**
 
-Certain IPs (internal services, monitoring agents, CI runners) and paths (health checks, webhooks) should bypass all anomaly analysis entirely. Both are checked at the very start of every request — before ban checks, before scoring, before any background work.
-
-```python
-SMART_MIDDLEWARE = {
-    ...
-    'WHITELIST_IPS': [
-        '10.0.0.5',        # internal service
-        '192.168.1.100',   # CI runner
-    ],
-    'WHITELIST_PATHS': [
-        '/health/',        # load balancer health check
-        '/webhooks/',      # third-party webhook endpoint
-    ],
-}
-```
-
-`WHITELIST_PATHS` uses prefix matching — `/webhooks/` matches `/webhooks/stripe/`, `/webhooks/github/`, etc.
-
-> **Note:** Whitelisted IPs and paths skip `AIAnomalyDetector` only. `RateLimiter`, `WatchLog`, and `AIRequestValidator` still run normally for these requests.
+`WHITELIST_IPS` and `WHITELIST_PATHS` bypass `AIAnomalyDetector` entirely — checked before ban logic, before scoring, before any background work. `RateLimiter`, `WatchLog`, and `AIRequestValidator` still run for whitelisted requests. `WHITELIST_PATHS` uses prefix matching. See the [Configuration](#configuration--minimum-vs-maximum-setup) section for full examples and all available keys.
 
 **Optional scoring tuning:**
 
@@ -433,61 +415,202 @@ Smart Layer uses any **OpenAI-compatible** API endpoint. Set `AI_BASE_URL` to th
 
 ---
 
-## Full Settings Reference
+## Configuration — Minimum vs Maximum Setup
+
+---
+
+### Minimum Setup
+
+**What you need:** Just logging and rate limiting — no AI key required. Zero risk of AI-related failures.
+
+**What works:**
+- ✅ `WatchLog` — every request is recorded to the database
+- ✅ `RateLimiter` — per-plan, per-path quotas enforced
+- ❌ `AIAnomalyDetector` — skipped (no AI key, fails open silently)
+- ❌ `AIRequestValidator` — skipped (no AI key, fails open silently)
+- ❌ `analyse_logs` — runs but produces a raw stats summary only, no plain-English AI report
 
 ```python
+# settings.py — Minimum setup
+
+INSTALLED_APPS = [
+    ...
+    'smartlayer',
+]
+
+MIDDLEWARE = [
+    'smartlayer.middleware.RateLimiter',
+    'smartlayer.middleware.WatchLog',
+    ...
+]
+
+SMART_MIDDLEWARE = {
+    # RateLimiter — the only thing that needs configuration here
+    'PLAN_FIELD': 'plan',            # the attribute on your User model, e.g. user.plan
+    'RATE_LIMIT_PLANS': {
+        'free': {
+            '/api/generate/': {'per_minute': 2, 'per_day': 50},
+        },
+        'premium': {
+            '/api/generate/': {'per_minute': 50, 'per_day': 5000},
+        },
+    },
+}
+```
+
+No `AI_API_KEY`. No migrations beyond the basic ones. Works immediately.
+
+---
+
+### Maximum Setup
+
+**What you need:** An AI API key (Groq free tier is enough to start), Redis as cache backend, and optionally `apscheduler` for auto-scheduling.
+
+**What works:**
+- ✅ `AIAnomalyDetector` — full bot detection, behavioural scoring, AI verdicts, auto-expiring bans
+- ✅ `AIRequestValidator` — pattern matching + AI confidence scoring for borderline payloads
+- ✅ `RateLimiter` — per-plan quotas with persistent counters (Redis keeps them across restarts)
+- ✅ `WatchLog` — full request logging
+- ✅ `analyse_logs` — plain-English daily report delivered to Django admin, auto-scheduled
+- ✅ Whitelisted IPs and paths skip anomaly detection entirely
+- ✅ Proxy-aware real IP extraction for deployments behind Nginx, ALB, or Cloudflare
+- ✅ Verbose terminal output for `analyse_logs` in non-production environments (`DEBUG: True`)
+
+```python
+# settings.py — Maximum setup
+
+INSTALLED_APPS = [
+    ...
+    'smartlayer',
+]
+
+MIDDLEWARE = [
+    'smartlayer.middleware.AIAnomalyDetector',    # 1st — bot/attack detection
+    'smartlayer.middleware.AIRequestValidator',    # 2nd — payload validation
+    'smartlayer.middleware.RateLimiter',           # 3rd — subscription rate limiting
+    'smartlayer.middleware.WatchLog',              # 4th — logging (always last)
+    ...
+]
+
 SMART_MIDDLEWARE = {
 
     # ── AI Backend ───────────────────────────────────────────────────────────
-    # Required for: AIAnomalyDetector, AIRequestValidator, analyse_logs
-    'AI_API_KEY':  'your-key',
-    'AI_BASE_URL': 'https://api.groq.com/openai/v1',
+    # Used by: AIAnomalyDetector, AIRequestValidator, analyse_logs
+    'AI_API_KEY':  'your-api-key',
+    'AI_BASE_URL': 'https://api.groq.com/openai/v1',   # any OpenAI-compatible URL
     'AI_MODEL':    'llama3-8b-8192',
 
     # ── RateLimiter ──────────────────────────────────────────────────────────
-    'PLAN_FIELD': 'plan',               # attribute on request.user (e.g. user.plan)
+    # PLAN_FIELD: attribute name on your User model (e.g. request.user.plan)
+    # Paths use prefix matching — longest prefix wins.
+    # Plans not listed here are let through without limiting.
+    # Paths only in 'premium' return 403 for users on lower plans.
+    'PLAN_FIELD': 'plan',
     'RATE_LIMIT_PLANS': {
         'free': {
             '/api/generate/': {
                 'per_minute': 2,
                 'per_hour':   20,
                 'per_day':    100,
-                'lifetime':   1000,
+                'lifetime':   1000,    # total ever — never resets
             },
         },
+        'basic': {
+            '/api/generate/': {'per_minute': 10, 'per_hour': 100,  'per_day': 500},
+            '/api/export/':   {'per_minute': 5,  'per_day':  100},
+        },
         'premium': {
-            '/api/generate/': {
-                'per_minute': 50,
-                'per_day':    5000,
-            },
+            '/api/generate/': {'per_minute': 50,  'per_day': 5000},
+            '/api/export/':   {'per_minute': 20,  'per_day': 1000},
+            '/api/analytics/':{'per_minute': 100, 'per_day': 10000},
         },
     },
 
     # ── Log Analysis ─────────────────────────────────────────────────────────
-    'LOG_RETENTION_DAYS': 30,          # default: 30 days
-    'ANALYSE_LOGS_AT': '06:00',        # remove key to use cron instead
+    # LOG_RETENTION_DAYS default: 7. Logs older than this are deleted on each run.
+    # ANALYSE_LOGS_AT: remove this key entirely if you prefer cron (recommended in production).
+    # DEBUG: if True, the full report is also printed to terminal (default: True).
+    'LOG_RETENTION_DAYS': 30,
+    'ANALYSE_LOGS_AT': '06:00',
+    'DEBUG': False,                    # set True in dev to see report output in terminal
 
-    # ── AIAnomalyDetector — optional tuning ──────────────────────────────────
-    'grey_suspicion_threshold': 5,     # minimum score to consult AI (default: 5)
-    'grey_hard_block_score':    8,     # score to ban without AI (default: 8)
+    # ── AIAnomalyDetector — scoring tuning ───────────────────────────────────
+    # grey_suspicion_threshold: score at which AI is consulted (default: 5)
+    # grey_hard_block_score:    score at which user is banned without asking AI (default: 8)
+    # grey_sensitive_paths:     path prefixes that raise the sensitive-path signal (+3 score)
+    'grey_suspicion_threshold': 5,
+    'grey_hard_block_score':    8,
     'grey_sensitive_paths': [
-        '/admin', '/.env', '/config', '/api/token', '/api/login',
+        '/admin',
+        '/.env',
+        '/config',
+        '/api/token',
+        '/api/login',
     ],
 
-    # IPs and path prefixes that bypass AIAnomalyDetector entirely
+    # ── Whitelist ────────────────────────────────────────────────────────────
+    # These bypass AIAnomalyDetector entirely — before ban checks, before scoring.
+    # WatchLog, RateLimiter, and AIRequestValidator still run for whitelisted requests.
+    # WHITELIST_PATHS uses prefix matching — '/webhooks/' matches '/webhooks/stripe/' etc.
     'WHITELIST_IPS': [
-        '10.0.0.5',
-        '192.168.1.100',
+        '10.0.0.5',          # internal service account
+        '192.168.1.100',     # CI/CD runner
     ],
     'WHITELIST_PATHS': [
-        '/health/',
-        '/webhooks/',
+        '/health/',          # load balancer health check
+        '/webhooks/',        # third-party webhook receiver
     ],
 
     # ── Proxy / IP Detection ─────────────────────────────────────────────────
-    'TRUST_PROXY': False,              # set True only when behind Nginx, ALB, or Cloudflare
+    # Set True ONLY when Django is behind Nginx, AWS ALB, or Cloudflare.
+    # Never enable on a direct-to-internet deployment — clients can forge X-Forwarded-For.
+    # Priority order when True: CF-Connecting-IP → X-Forwarded-For (leftmost) → REMOTE_ADDR
+    'TRUST_PROXY': True,
 }
 ```
+
+**Additional requirements for maximum setup:**
+
+```bash
+# AI support (httpx installed automatically with the package)
+pip install django-smart-layer
+
+# Auto-scheduling for analyse_logs
+pip install django-smart-layer[scheduler]
+```
+
+```python
+# Redis cache — keeps rate-limit counters alive across server restarts
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+    }
+}
+```
+
+> Smart Layer emits a Django system check warning (`smartlayer.W001`) at startup if it detects the default in-memory cache is in use, reminding you to switch to Redis.
+
+---
+
+### What Each Key Does — At a Glance
+
+| Key | Required | Default | Used By |
+|---|:---:|---|---|
+| `AI_API_KEY` | For AI features | — | `AIAnomalyDetector`, `AIRequestValidator`, `analyse_logs` |
+| `AI_BASE_URL` | For AI features | — | Same as above |
+| `AI_MODEL` | For AI features | — | Same as above |
+| `PLAN_FIELD` | For `RateLimiter` | `'plan'` | `RateLimiter` |
+| `RATE_LIMIT_PLANS` | For `RateLimiter` | `{}` | `RateLimiter` |
+| `LOG_RETENTION_DAYS` | No | `7` | `analyse_logs` |
+| `ANALYSE_LOGS_AT` | No | — (disabled) | `analyse_logs` auto-scheduler |
+| `DEBUG` | No | `True` | `analyse_logs` terminal output |
+| `grey_suspicion_threshold` | No | `5` | `AIAnomalyDetector` |
+| `grey_hard_block_score` | No | `8` | `AIAnomalyDetector` |
+| `grey_sensitive_paths` | No | Built-in list | `AIAnomalyDetector` |
+| `WHITELIST_IPS` | No | `[]` | `AIAnomalyDetector` |
+| `WHITELIST_PATHS` | No | `[]` | `AIAnomalyDetector` |
+| `TRUST_PROXY` | No | `False` | All middleware (IP detection) |
 
 ---
 
