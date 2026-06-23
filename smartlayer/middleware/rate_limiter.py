@@ -31,6 +31,7 @@ Checking Scores for each of them and then limiting the request.
 Scope checking Precedence -: Lifetime -> per day -> per hour -> per minute
 
 """
+from django.db import transaction
 from django.conf import settings
 from django.core.cache import cache
 from django.http import JsonResponse
@@ -116,12 +117,17 @@ class RateLimiter:
                 return response
 
         if lifetime:
-            record, _ = UserRequestCount.objects.get_or_create(user=request.user, path=request.path, plan_field=user_plan)
-            if record.lifetime_count >= lifetime:
-                request._was_blocked = True
-                return JsonResponse({"error": "Lifetime rate limit exceeded"}, status=429)
-                # no Retry-After for lifetime — there is no window to retry after
-            UserRequestCount.objects.filter(pk=record.pk).update(lifetime_count=F('lifetime_count') + 1)
-            
+            with transaction.atomic():
+                record = (
+                    UserRequestCount.objects
+                    .select_for_update()
+                    .get_or_create(user=request.user, path=request.path, plan_field=user_plan)[0]
+                )
+                if record.lifetime_count >= lifetime:
+                    request._was_blocked = True
+                    return JsonResponse({"error": "Lifetime rate limit exceeded"}, status=429)
+                record.lifetime_count = F('lifetime_count') + 1
+                record.save(update_fields=['lifetime_count'])
+
         response=self.get_response(request)
         return response

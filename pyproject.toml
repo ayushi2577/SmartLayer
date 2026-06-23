@@ -3,15 +3,19 @@ name = "django-smart-layer"
 version = "0.1.2"
 description = "AI-powered Django middleware for security, monitoring and rate limiting"
 requires-python = ">=3.10"
-readme = "README.md"
-license = {text = "MIT"}
+readme = {file = "README.md", content-type = "text/markdown"}
+license = {file = "LICENSE"}
 authors = [
-    {name = "Ayushi Agrawal", email = "ayushiagrawal2507@email.com"}
+    {name = "Ayushi Agrawal", email = "ayushiagrawal2507@gmail.com"}
 ]
 keywords = ["django", "middleware", "ai", "security", "rate-limiting"]
 classifiers = [
+    "Development Status :: 3 - Alpha",
     "Framework :: Django",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
@@ -35,3 +39,7 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["smartlayer*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+"smartlayer" = ["migrations/*.py"]
