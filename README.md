@@ -26,7 +26,7 @@
 - [Proxy & IP Detection](#proxy--ip-detection)
 - [Requirements](#requirements)
 - [Known Limitations](#known-limitations)
-- [Roadmap](#roadmap)
+- [Future Scope](#future-scope)
 - [License](#license)
 
 ---
@@ -642,13 +642,12 @@ With `TRUST_PROXY` enabled, Smart Layer checks headers in this priority order:
 
 ---
 
-## Roadmap
+## Future Scope
 
 - [ ] Usage dashboard at `/smart-layer/dashboard/`
 - [ ] Email delivery for daily `analyse_logs` reports
 - [ ] Webhook support for ban events
 - [ ] Per-IP rate limiting (in addition to per-user)
-- [ ] Extended test coverage
 
 ---
 

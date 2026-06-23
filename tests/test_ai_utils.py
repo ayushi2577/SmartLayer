@@ -296,6 +296,13 @@ class TestAskAiVerdict(TestCase):
         sent_prompt = mock_call_ai.call_args[0][0]
         self.assertIn('curl/8.0', sent_prompt)
         self.assertIn('is_authenticated', sent_prompt)
+    
+    @patch('smartlayer.utils.call_ai')
+    def test_block_with_zero_hours_clamped_to_1(self, mock_call_ai):
+        """BLOCK:0 would also produce an immediate expiry — clamp to 1."""
+        mock_call_ai.return_value = 'BLOCK:0'
+        result = ask_ai_verdict(self.PAYLOAD, VALID_CONFIG)
+        self.assertEqual(result, {'verdict': 'BLOCK', 'ban_hours': 1})
 
 
 class TestAiCallFailureHandling(TestCase):
@@ -333,9 +340,3 @@ class TestAiCallFailureHandling(TestCase):
         with self.assertRaises(ValueError):
             call_ai('prompt', {})
         mock_post.assert_not_called()
-
-    def test_block_with_zero_hours_clamped_to_1(self, mock_call_ai):
-        """BLOCK:0 would also produce an immediate expiry — clamp to 1."""
-        mock_call_ai.return_value = 'BLOCK:0'
-        result = ask_ai_verdict(self.PAYLOAD, VALID_CONFIG)
-        self.assertEqual(result, {'verdict': 'BLOCK', 'ban_hours': 1})

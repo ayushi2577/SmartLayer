@@ -99,3 +99,12 @@ class TestWatchLog(TestCase):
             request = self._make_request(path=f'/api/endpoint{i}/')
             self._log(request)
         self.assertEqual(RequestLog.objects.count(), 5)
+    
+    def test_save_log_never_crashes_app(self):
+        from unittest.mock import patch
+        with patch('smartlayer.models.RequestLog.objects') as mock_objects:
+            mock_objects.create.side_effect = Exception('DB is down')
+            try:
+                self.middleware._save_log({'method': 'GET', 'path': '/'})
+            except Exception:
+                self.fail('_save_log should never raise exceptions')

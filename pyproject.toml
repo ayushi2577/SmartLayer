@@ -12,11 +12,18 @@ keywords = ["django", "middleware", "ai", "security", "rate-limiting"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Framework :: Django",
+    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.0",
+    "Framework :: Django :: 5.1",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Topic :: Security",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
 dependencies = [
     "django>=4.2",
@@ -31,6 +38,7 @@ scheduler = [
 [project.urls]
 Homepage = "https://github.com/ayushi2577/SmartLayer"
 Repository = "https://github.com/ayushi2577/SmartLayer"
+"Bug Tracker" = "https://github.com/you/smartlayer/issues"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]

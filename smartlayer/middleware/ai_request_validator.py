@@ -10,7 +10,8 @@ SMART_MIDDLEWARE = {
     'AI_BASE_URL': 'https://api.groq.com/openai/v1',
     'AI_MODEL': 'llama3-8b-8192',
     }
-#currently only supports GROQ but can be extended to support other AI providers in future
+# supports any OpenAI-compatible provider (Groq, OpenAI, Together, etc.)
+# configure via SMART_MIDDLEWARE settings: AI_BASE_URL, AI_API_KEY, AI_MODEL
 if no api key is provided or if AI call fails for any reason, the middleware will fail open and allow the request to go through (to avoid breaking the app).
 but will still block requests with 3 or more suspicious patterns without calling AI, to catch obvious attacks even if AI is not working.
 """
