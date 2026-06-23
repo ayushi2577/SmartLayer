@@ -105,7 +105,7 @@ def ask_ai_verdict(payload: dict, config: dict) -> dict:
     if result.startswith("BLOCK"):
         parts = result.split(":")
         try:
-            hours = int(parts[1]) if len(parts) > 1 else 24
+            hours = max(1, int(parts[1])) if len(parts) > 1 else 24
         except (ValueError, IndexError):
             hours = 24
         return {"verdict": "BLOCK", "ban_hours": hours}

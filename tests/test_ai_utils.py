@@ -257,12 +257,11 @@ class TestAskAiVerdict(TestCase):
 
     @patch('smartlayer.utils.call_ai')
     def test_block_with_negative_hours_not_clamped(self, mock_call_ai):
-        """Nothing validates that ban_hours is positive — documents current
-        (unsafe) behaviour rather than assuming it's handled. A negative
-        ban_hours would produce an expires_at in the past, i.e. no ban."""
+        """Negative ban hours are clamped to 1 — a negative timedelta would set
+        expires_at in the past, meaning the ban is never enforced."""
         mock_call_ai.return_value = 'BLOCK:-5'
         result = ask_ai_verdict(self.PAYLOAD, VALID_CONFIG)
-        self.assertEqual(result, {'verdict': 'BLOCK', 'ban_hours': -5})
+        self.assertEqual(result, {'verdict': 'BLOCK', 'ban_hours': 1})
 
     @patch('smartlayer.utils.call_ai')
     def test_unrecognised_text_treated_as_allow(self, mock_call_ai):
@@ -334,3 +333,9 @@ class TestAiCallFailureHandling(TestCase):
         with self.assertRaises(ValueError):
             call_ai('prompt', {})
         mock_post.assert_not_called()
+
+    def test_block_with_zero_hours_clamped_to_1(self, mock_call_ai):
+        """BLOCK:0 would also produce an immediate expiry — clamp to 1."""
+        mock_call_ai.return_value = 'BLOCK:0'
+        result = ask_ai_verdict(self.PAYLOAD, VALID_CONFIG)
+        self.assertEqual(result, {'verdict': 'BLOCK', 'ban_hours': 1})
