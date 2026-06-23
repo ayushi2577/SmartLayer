@@ -167,19 +167,17 @@ MIDDLEWARE = [
 
 SMART_MIDDLEWARE = {
 
-    # ── AI Backend ───────────────────────────────────────────────────────────
     # Used by: AIAnomalyDetector, AIRequestValidator, analyse_logs
     'AI_API_KEY':  'your-api-key',
     'AI_BASE_URL': 'https://api.groq.com/openai/v1',   # any OpenAI-compatible URL
     'AI_MODEL':    'llama3-8b-8192',
 
-    # ── RateLimiter ──────────────────────────────────────────────────────────
+    # ── RateLimiter ─ Paths use prefix matching — longest prefix wins.
     # PLAN_FIELD: attribute name on your User model (e.g. request.user.plan)
-    # Paths use prefix matching — longest prefix wins.
-    # Plans not listed here are let through without limiting.
-    # Paths only in 'premium' return 403 for users on lower plans.
     'PLAN_FIELD': 'plan',
     'RATE_LIMIT_PLANS': {
+        'anonymous': {
+            '/api/v1/login/': {'per_minute': 5, 'per_hour': 20},
         'free': {
             '/api/generate/': {
                 'per_minute': 2,
@@ -188,31 +186,19 @@ SMART_MIDDLEWARE = {
                 'lifetime':   1000,    # total ever — never resets
             },
         },
-        'basic': {
-            '/api/generate/': {'per_minute': 10, 'per_hour': 100,  'per_day': 500},
-            '/api/export/':   {'per_minute': 5,  'per_day':  100},
-        },
         'premium': {
             '/api/generate/': {'per_minute': 50,  'per_day': 5000},
             '/api/export/':   {'per_minute': 20,  'per_day': 1000},
-            '/api/analytics/':{'per_minute': 100, 'per_day': 10000},
         },
     },
 
     # ── Log Analysis ─────────────────────────────────────────────────────────
-    # LOG_RETENTION_DAYS default: 7. Logs older than this are deleted on each run.
-    # ANALYSE_LOGS_AT: remove this key entirely if you prefer cron (recommended in production).
-    # VERBOSE_REPORT: if True, the full report is also printed to terminal (default: True).
+    # LOG_RETENTION_DAYS default: 7. ANALYSE_LOGS_AT: remove this key entirely if you prefer cron (recommended in production).
     'LOG_RETENTION_DAYS': 7,
     'ANALYSE_LOGS_AT': '06:00',
     'VERBOSE_REPORT': False,                    # set True in dev to see report output in terminal
 
-    # ── AIAnomalyDetector — scoring tuning ───────────────────────────────────
-    # grey_suspicion_threshold: score at which AI is consulted (default: 5)
-    # grey_hard_block_score:    score at which user is banned without asking AI (default: 8)
-    # grey_sensitive_paths:     path prefixes that raise the sensitive-path signal (+3 score)
-    'grey_suspicion_threshold': 5,
-    'grey_hard_block_score':    8,
+    # ── AIAnomalyDetector — grey_sensitive_paths:     path prefixes that raise the sensitive-path signal (+3 score)
     'grey_sensitive_paths': [
         '/admin',
         '/.env',
@@ -222,8 +208,7 @@ SMART_MIDDLEWARE = {
     ],
 
     # ── Whitelist ────────────────────────────────────────────────────────────
-    # These bypass AIAnomalyDetector entirely — before ban checks, before scoring.
-    # WatchLog, RateLimiter, and AIRequestValidator still run for whitelisted requests.
+    # These bypass only AIAnomalyDetector entirely — before ban checks, before scoring.
     # WHITELIST_PATHS uses prefix matching — '/webhooks/' matches '/webhooks/stripe/' etc.
     'WHITELIST_IPS': [
         '10.0.0.5',          # internal service account

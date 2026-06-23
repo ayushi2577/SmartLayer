@@ -121,7 +121,7 @@ W_UNAUTHENTICATED       = 1
 BAN_HOURS_EMPTY_UA      = 24   # Empty user agent - likely bot
 BAN_HOURS_RATE_LIMIT    = 1    # 50+ req/10s - burst, may be accidental
 BAN_HOURS_ERROR_RATE    = 24   # 75%+ error rate - scanning or broken client
-BAN_HOURS_HARD_BLOCK    = 168  # Grey score >= 8 - high confidence threat (7 days)
+BAN_HOURS_HARD_BLOCK    = 48  # Grey score >= 8 - high confidence threat (7 days)
 
 
 # ======================================================================        
@@ -138,8 +138,8 @@ class AIAnomalyDetector:
     def __init__(self, get_response):
         self.get_response = get_response
         cfg = getattr(settings, 'SMART_MIDDLEWARE', {})
-        self.grey_threshold  = cfg.get('grey_suspicion_threshold', 5)
-        self.grey_hard_block = cfg.get('grey_hard_block_score', 8)
+        self.grey_threshold  = 5
+        self.grey_hard_block = 8
         self.sensitive_paths = cfg.get('grey_sensitive_paths', DEFAULT_SENSITIVE_PATHS)
 
 
