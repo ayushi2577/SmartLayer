@@ -7,6 +7,15 @@ SMART_MIDDLEWARE dict in settings.py
 SMART_MIDDLEWARE={
     'PLAN_FIELD': 'plan',  # WHAT IS THE PLAN FIELD IN USER MODEL
     'RATE_LIMIT_PLANS': {
+        'anonymous': {
+            '/api/v1/login/': {
+                'per_minute': 5,
+                'per_hour': 20,
+            },
+            '/api/v1/register/': {
+                'per_minute': 3,
+            },
+        },
         'free': {
             '/api/v1/users/1': {
                 'per_minute': 10,
@@ -62,9 +71,45 @@ class RateLimiter:
             return self.get_response(request)                   # no config - just let through      
 
         if not request.user.is_authenticated:
-            response = self.get_response(request)
-            return response
-        
+            anon_limits = config.get('RATE_LIMIT_PLANS', {}).get('anonymous')
+            if anon_limits:
+                ip         = request.META.get('REMOTE_ADDR', 'unknown')
+                path_limit = get_path_limits(anon_limits, request.path)
+
+                if path_limit:
+                    per_minute = path_limit.get('per_minute')
+                    per_hour   = path_limit.get('per_hour')
+                    per_day    = path_limit.get('per_day')
+
+                    if per_minute:
+                        key = f"rl:anon:min:{ip}:{request.path}"
+                        cache.add(key, 0, 60)
+                        if cache.incr(key) > per_minute:
+                            request._was_blocked = True
+                            response = JsonResponse({"error": "too many requests"}, status=429)
+                            response["Retry-After"] = 60
+                            return response
+
+                    if per_hour:
+                        key = f"rl:anon:hour:{ip}:{request.path}"
+                        cache.add(key, 0, 3600)
+                        if cache.incr(key) > per_hour:
+                            request._was_blocked = True
+                            response = JsonResponse({"error": "too many requests"}, status=429)
+                            response["Retry-After"] = 3600
+                            return response
+
+                    if per_day:
+                        key = f"rl:anon:day:{ip}:{request.path}"
+                        cache.add(key, 0, 86400)
+                        if cache.incr(key) > per_day:
+                            request._was_blocked = True
+                            response = JsonResponse({"error": "too many requests"}, status=429)
+                            response["Retry-After"] = 86400
+                            return response
+
+            return self.get_response(request)
+
         plan_field = config.get('PLAN_FIELD', 'plan')       # default to 'plan'
         user_plan = getattr(request.user, plan_field)       # request.user.plan_filed like user.plan or user.subscription
 
