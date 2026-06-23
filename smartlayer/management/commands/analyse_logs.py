@@ -171,7 +171,7 @@ class Command(BaseCommand):
                 {'='*60}
             """.strip()
 
-        # -- Step 5: Save to DB ------------------------------------------
+        # -- Save to DB ------------------------------------------
         # saves to developer's existing database
         # uses async write so this never blocks anything
         report_obj, created = DailyReport.objects.update_or_create(
@@ -182,7 +182,7 @@ class Command(BaseCommand):
         action = "Created" if created else "Updated"
         self.stdout.write(f"[Smart Layer] {action} report for {yesterday} — visible in Django admin → Daily Reports")
 
-        # -- Step 6: Print to terminal too ------------------------------
+        # -- Print to terminal too ------------------------------
         is_production = not config.get('VERBOSE_REPORT', True)
         if not is_production:
             self.stdout.write(final_report)
